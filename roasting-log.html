@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Roasting Log</title>
+<style>
+  :root { --bg:#0f1115; --card:#151823; --muted:#8b92a6; --text:#e8ecf3; --accent:#5cc8ff; --accent2:#52d39b; --warn:#ffb656; --danger:#ff6b6b; }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px;}
+  .tabs{display:flex;gap:10px;margin-bottom:16px;position:sticky;top:0;background:var(--bg);padding-top:8px;z-index:2}
+  .tab{flex:0 0 auto;padding:10px 14px;border-radius:12px;background:#1b2030;color:var(--muted);border:1px solid #23283b;cursor:pointer}
+  .tab.active{color:var(--text);border-color:var(--accent);box-shadow:0 0 0 2px #1a2735}
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+  .card{grid-column:1/-1;background:var(--card);border:1px solid #20263a;border-radius:16px;padding:16px}
+  h2{margin:0 0 12px 0;font-size:20px}
+  .row{display:flex;flex-wrap:wrap;gap:10px}
+  .field{display:flex;flex-direction:column;gap:6px;min-width:140px}
+  label{font-size:13px;color:var(--muted)}
+  input,select,textarea{background:#101420;color:var(--text);border:1px solid #23283b;border-radius:12px;padding:12px;font-size:16px;outline:none}
+  input:focus,textarea:focus,select:focus{border-color:var(--accent)}
+  textarea{min-height:72px;resize:vertical}
+  .btns{display:flex;flex-wrap:wrap;gap:10px}
+  .btn{padding:14px 16px;border-radius:14px;border:1px solid #2a324c;background:#121726;color:var(--text);font-size:16px;cursor:pointer;touch-action:manipulation}
+  .btn:active{transform:translateY(1px)}
+  .btn.accent{border-color:#24465a;background:#0f1b26}
+  .btn.accent2{border-color:#255044;background:#0f1e19}
+  .btn.warn{border-color:#4b3b1f;background:#19140c}
+  .btn.danger{border-color:#4a1f27;background:#190d10}
+  .btn.small{padding:8px 10px;font-size:14px;border-radius:10px}
+  .pill{padding:6px 10px;border-radius:999px;border:1px solid #2a324c;background:#121726;color:var(--muted);font-size:12px}
+  table{width:100%;border-collapse:separate;border-spacing:0 8px}
+  th,td{padding:10px 12px;text-align:left;font-size:14px}
+  thead th{color:var(--muted);font-weight:600}
+  tbody tr{background:#121726;border:1px solid #1f2639}
+  tbody td:first-child{border-top-left-radius:10px;border-bottom-left-radius:10px}
+  tbody td:last-child{border-top-right-radius:10px;border-bottom-right-radius:10px}
+  td[contenteditable="true"]{outline:0;border-bottom:1px dashed #2a324c}
+  .right{justify-content:flex-end;margin-left:auto}
+  .split{display:flex;gap:12px;flex-wrap:wrap}
+  .grow{flex:1}
+  .hint{font-size:12px;color:var(--muted)}
+  .sticky-actions{position:sticky;bottom:0;padding-top:10px;background:linear-gradient(180deg, rgba(15,17,21,0), var(--bg) 40%);}
+  /* --- Detail modal --- */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+  .modal-card{width:min(920px,96vw);max-height:92vh;overflow:auto;background:#151823;border:1px solid #20263a;border-radius:16px;padding:16px}
+  .modal-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .modal-head h3{margin:0;font-size:18px}
+  .modal-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+  .modal-grid .field{grid-column:span 6}
+  .modal-grid .field.wide{grid-column:1 / -1}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;position:sticky;bottom:0;background:linear-gradient(180deg, rgba(21,24,35,0), #151823 40%);padding-top:10px;margin-top:12px}
+  .badge{padding:4px 8px;border-radius:999px;border:1px solid #2a324c;background:#121726;color:#8b92a6;font-size:12px}
+</style>
+</head>
+<body>
+
+<!-- Detail Modal -->
+<div id="detailModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="detailTitle">Roast Details</h3>
+      <span id="detailId" class="badge"></span>
+      <span id="detailStorage" class="badge"></span>
+      <button id="detailClose" class="btn small right">Close</button>
+    </div>
+
+    <div class="modal-grid">
+      <div class="field"><label>Date</label><input id="d_date" /></div>
+      <div class="field"><label>Roaster</label><input id="d_roaster" /></div>
+      <div class="field"><label>Bean / Lot</label><input id="d_bean" /></div>
+      <div class="field"><label>Profile</label><input id="d_profile" /></div>
+      <div class="field"><label>Starting Weight (g)</label><input id="d_startWeight" type="number" inputmode="decimal" /></div>
+      <div class="field"><label>Charge Temp (°C)</label><input id="d_chargeTemp" type="number" inputmode="decimal" /></div>
+
+      <div class="field"><label>Start Time</label>
+        <input id="d_startTime" placeholder="auto or ISO" />
+        <div class="btns" style="margin-top:6px"><button id="d_setStartNow" class="btn small">Set to now</button></div>
+      </div>
+
+      <div class="field"><label>1st Crack Time</label>
+        <input id="d_firstCrackTime" placeholder="auto or ISO" />
+        <div class="btns" style="margin-top:6px"><button id="d_setFCNow" class="btn small">Set to now</button></div>
+      </div>
+      <div class="field"><label>1st Crack Temp (°C)</label><input id="d_firstCrackTemp" type="number" inputmode="decimal" /></div>
+
+      <div class="field"><label>2nd Crack Time</label>
+        <input id="d_secondCrackTime" placeholder="auto or ISO" />
+        <div class="btns" style="margin-top:6px"><button id="d_setSCNow" class="btn small">Set to now</button></div>
+      </div>
+      <div class="field"><label>2nd Crack Temp (°C)</label><input id="d_secondCrackTemp" type="number" inputmode="decimal" /></div>
+
+      <div class="field"><label>Finish Time</label>
+        <input id="d_endTime" placeholder="auto or ISO" />
+        <div class="btns" style="margin-top:6px"><button id="d_setEndNow" class="btn small">Set to now</button></div>
+      </div>
+      <div class="field"><label>End Weight (g)</label><input id="d_endWeight" type="number" inputmode="decimal" /></div>
+      <div class="field"><label>End Temp (°C)</label><input id="d_endTemp" type="number" inputmode="decimal" /></div>
+
+      <div class="field wide"><label>Notes</label><textarea id="d_notes" placeholder="Add notes, observations, changes..."></textarea></div>
+    </div>
+
+    <div class="modal-actions">
+      <button id="detailDelete" class="btn small danger">Delete</button>
+      <button id="detailDuplicate" class="btn small">Duplicate</button>
+      <button id="detailSave" class="btn small accent2">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="tabs">
+    <button class="tab active" data-tab="active">Active Roast</button>
+    <button class="tab" data-tab="log">Roast Log</button>
+    <span class="pill" id="status-pill">Ready</span>
+    <div class="right split">
+      <button class="tab btn small" id="exportCsv">Export CSV</button>
+      <label class="tab btn small" style="cursor:pointer">Import CSV
+        <input id="importCsv" type="file" accept=".csv" style="display:none" />
+      </label>
+    </div>
+  </div>
+
+  <!-- Active Roast -->
+  <div id="tab-active">
+    <div class="card">
+      <h2>Batch Details</h2>
+      <div class="row">
+        <div class="field"><label>Roaster</label><input id="roasterName" placeholder="Who is roasting?" /></div>
+        <div class="field"><label>Bean / Lot</label><input id="beanName" placeholder="e.g., Ethiopia Yirgacheffe" /></div>
+        <div class="field"><label>Starting Weight (g)</label><input id="startWeight" type="number" inputmode="decimal" placeholder="e.g., 1000" /></div>
+        <div class="field"><label>Charge Temp (°C)</label><input id="chargeTemp" type="number" inputmode="decimal" placeholder="optional" /></div>
+        <div class="field"><label>Drum / Profile</label><input id="profile" placeholder="optional notes" /></div>
+        <div class="field grow"><label>Notes</label><input id="notes" placeholder="Anything special for this batch" /></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Capture Timeline</h2>
+      <div class="btns">
+        <button class="btn accent" id="btnStart">Start</button>
+        <div class="field">
+          <label>Start Time</label>
+          <input id="startTime" placeholder="auto" readonly />
+        </div>
+      </div>
+      <div class="btns" style="margin-top:8px">
+        <button class="btn accent2" id="btnFC">1st Crack</button>
+        <div class="field">
+          <label>1C Time</label>
+          <input id="firstCrackTime" placeholder="auto" readonly />
+        </div>
+        <div class="field">
+          <label>1C Temp (°C)</label>
+          <input id="firstCrackTemp" type="number" inputmode="decimal" placeholder="enter temp" />
+        </div>
+      </div>
+      <div class="btns" style="margin-top:8px">
+        <button class="btn warn" id="btnSC">2nd Crack</button>
+        <div class="field">
+          <label>2C Time</label>
+          <input id="secondCrackTime" placeholder="auto" readonly />
+        </div>
+        <div class="field">
+          <label>2C Temp (°C)</label>
+          <input id="secondCrackTemp" type="number" inputmode="decimal" placeholder="enter temp" />
+        </div>
+      </div>
+      <div class="btns" style="margin-top:8px">
+        <button class="btn danger" id="btnEnd">Finish</button>
+        <div class="field">
+          <label>End Time</label>
+          <input id="endTime" placeholder="auto" readonly />
+        </div>
+        <div class="field">
+          <label>End Weight (g)</label>
+          <input id="endWeight" type="number" inputmode="decimal" placeholder="e.g., 850" />
+        </div>
+        <div class="field">
+          <label>End Temp (°C)</label>
+          <input id="endTemp" type="number" inputmode="decimal" placeholder="enter temp" />
+        </div>
+      </div>
+
+      <div class="sticky-actions btns" style="margin-top:14px">
+        <button class="btn small" id="btnReset">Reset</button>
+        <button class="btn small accent2" id="btnSave">Save Roast</button>
+        <span class="hint" id="deltaHint"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Roast Log -->
+  <div id="tab-log" style="display:none">
+    <div class="card">
+      <h2>All Roasts</h2>
+      <div class="hint" style="margin-bottom:8px">Tap cells to edit inline. Changes are saved automatically.</div>
+      <div style="overflow:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Batch ID</th>
+              <th>Date</th>
+              <th>Roaster</th>
+              <th>Bean</th>
+              <th>Start</th>
+              <th>1C (t / °C)</th>
+              <th>2C (t / °C)</th>
+              <th>Finish</th>
+              <th>Start g</th>
+              <th>End g</th>
+              <th>End °C</th>
+              <th>Loss %</th>
+              <th>Notes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="logTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ------- Robust storage: IndexedDB + fallback + normalization -------
+const DB_NAME = 'roastingLogDB';
+const STORE   = 'roasts';
+const FALLBACK_KEY = 'roastingLog_fallback_v1';
+let storageMode = 'indexeddb'; // or 'localStorage' or 'memory'
+
+function normalizeRows(x){
+  if (Array.isArray(x)) return x;
+  if (!x) return [];
+  if (typeof x === 'object') return Object.values(x);
+  return [];
+}
+
+function openIDB(){
+  return new Promise((res, rej) => {
+    if (!('indexedDB' in window)) return rej(new Error('IndexedDB not supported'));
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error || new Error('IndexedDB open error'));
+  });
+}
+
+// Read ALL: resolve with req.result (array)
+async function idbAll(){
+  const db = await openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const st = tx.objectStore(STORE);
+    const req = st.getAll();
+    req.onsuccess = () => res(req.result || []);
+    req.onerror   = () => rej(req.error || new Error('getAll failed'));
+  });
+}
+
+// PUT: resolve after transaction completes
+async function idbPut(roast){
+  const db = await openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const st = tx.objectStore(STORE);
+    st.put(roast);
+    tx.oncomplete = () => res(true);
+    tx.onerror    = () => rej(tx.error || new Error('put failed'));
+  });
+}
+
+// DELETE: resolve after transaction completes
+async function idbDelete(id){
+  const db = await openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const st = tx.objectStore(STORE);
+    st.delete(id);
+    tx.oncomplete = () => res(true);
+    tx.onerror    = () => rej(tx.error || new Error('delete failed'));
+  });
+}
+
+const db = {
+  async all(){
+    try {
+      const rows = await idbAll();
+      storageMode = 'indexeddb';
+      return normalizeRows(rows);
+    } catch {
+      try {
+        const raw = localStorage.getItem(FALLBACK_KEY);
+        storageMode = 'localStorage';
+        return normalizeRows(raw ? JSON.parse(raw) : []);
+      } catch {
+        storageMode = 'memory';
+        return normalizeRows(window.__roastMem || []);
+      }
+    }
+  },
+  async put(roast){
+    try {
+      await idbPut(roast);
+      storageMode = 'indexeddb';
+      return roast;
+    } catch {
+      // fallback to localStorage/memory
+      const rows = await db.all();
+      const i = rows.findIndex(r => r.id === roast.id);
+      if (i >= 0) rows[i] = roast; else rows.push(roast);
+      try {
+        localStorage.setItem(FALLBACK_KEY, JSON.stringify(rows));
+        storageMode = 'localStorage';
+        return roast;
+      } catch {
+        window.__roastMem = rows;
+        storageMode = 'memory';
+        return roast;
+      }
+    }
+  },
+  async delete(id){
+    try {
+      await idbDelete(id);
+      storageMode = 'indexeddb';
+    } catch {
+      const rows = await db.all();
+      const filtered = rows.filter(r => r.id !== id);
+      try {
+        localStorage.setItem(FALLBACK_KEY, JSON.stringify(filtered));
+        storageMode = 'localStorage';
+      } catch {
+        window.__roastMem = filtered;
+        storageMode = 'memory';
+      }
+    }
+  }
+};
+
+// ------- Optional: show persistence status -------
+async function ensurePersistence(){
+  const pill = document.getElementById('status-pill');
+  if (navigator.storage && navigator.storage.persist) {
+    try {
+      if (!(await navigator.storage.persisted())) await navigator.storage.persist();
+      pill.textContent = `Storage: ${storageMode} (persisted)`;
+      return;
+    } catch {}
+  }
+  pill.textContent = `Storage: ${storageMode}`;
+}
+
+/* ---------- state & utils ---------- */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const fmtTime = d => d ? new Date(d).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '';
+const nowISO = () => new Date().toISOString();
+const todayStr = () => new Date().toLocaleDateString();
+
+let active = {};
+let allRoasts = [];
+
+function newActive(){
+  active = {
+    id: 'B' + Date.now(),
+    date: todayStr(),
+    roaster: '', bean: '', profile: '', notes: '',
+    startWeight: '', chargeTemp: '',
+    startTime: '', firstCrackTime: '', firstCrackTemp: '',
+    secondCrackTime: '', secondCrackTemp: '',
+    endTime: '', endWeight: '', endTemp: ''
+  };
+  bindActiveToUI();
+  $('#status-pill').textContent = 'Ready';
+  $('#deltaHint').textContent = '';
+}
+
+function bindActiveToUI(){
+  $('#roasterName').value = active.roaster || '';
+  $('#beanName').value = active.bean || '';
+  $('#profile').value = active.profile || '';
+  $('#notes').value = active.notes || '';
+  $('#startWeight').value = active.startWeight || '';
+  $('#chargeTemp').value = active.chargeTemp || '';
+  $('#startTime').value = fmtTime(active.startTime);
+  $('#firstCrackTime').value = fmtTime(active.firstCrackTime);
+  $('#secondCrackTime').value = fmtTime(active.secondCrackTime);
+  $('#endTime').value = fmtTime(active.endTime);
+  $('#firstCrackTemp').value = active.firstCrackTemp || '';
+  $('#secondCrackTemp').value = active.secondCrackTemp || '';
+  $('#endWeight').value = active.endWeight || '';
+  $('#endTemp').value = active.endTemp || '';
+  updateDeltaHint();
+}
+
+function wireActiveInputs(){
+  $('#roasterName').oninput = e => active.roaster = e.target.value;
+  $('#beanName').oninput = e => active.bean = e.target.value;
+  $('#profile').oninput = e => active.profile = e.target.value;
+  $('#notes').oninput = e => active.notes = e.target.value;
+  $('#startWeight').oninput = e => { active.startWeight = e.target.value; updateDeltaHint(); };
+  $('#chargeTemp').oninput = e => active.chargeTemp = e.target.value;
+  $('#firstCrackTemp').oninput = e => active.firstCrackTemp = e.target.value;
+  $('#secondCrackTemp').oninput = e => active.secondCrackTemp = e.target.value;
+  $('#endWeight').oninput = e => { active.endWeight = e.target.value; updateDeltaHint(); };
+  $('#endTemp').oninput = e => active.endTemp = e.target.value;
+}
+
+function updateDeltaHint(){
+  const s = parseFloat(active.startWeight||'');
+  const e = parseFloat(active.endWeight||'');
+  if(!isNaN(s) && !isNaN(e) && s>0){
+    const loss = ((s - e) / s) * 100;
+    $('#deltaHint').textContent = `Weight loss: ${loss.toFixed(1)}%`;
+  } else {
+    $('#deltaHint').textContent = '';
+  }
+}
+
+/* ---------- buttons ---------- */
+$('#btnStart').onclick = () => {
+  active.startTime = nowISO();
+  $('#startTime').value = fmtTime(active.startTime);
+  $('#status-pill').textContent = 'Roast started';
+};
+$('#btnFC').onclick = () => {
+  active.firstCrackTime = nowISO();
+  $('#firstCrackTime').value = fmtTime(active.firstCrackTime);
+  $('#status-pill').textContent = '1st crack logged';
+};
+$('#btnSC').onclick = () => {
+  active.secondCrackTime = nowISO();
+  $('#secondCrackTime').value = fmtTime(active.secondCrackTime);
+  $('#status-pill').textContent = '2nd crack logged';
+};
+$('#btnEnd').onclick = () => {
+  active.endTime = nowISO();
+  $('#endTime').value = fmtTime(active.endTime);
+  $('#status-pill').textContent = 'Finished';
+};
+$('#btnReset').onclick = () => newActive();
+
+$('#btnSave').onclick = async () => {
+  if (!active.startTime) { alert('Tap Start to begin the roast.'); return; }
+  try {
+    await db.put(active);
+    allRoasts = await db.all();
+    renderTable();
+    const pill = document.getElementById('status-pill');
+    pill.textContent = `Saved ${active.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+    newActive();
+  } catch (err) {
+    alert('Save failed.\n\nTip: avoid Private/Incognito and open via http(s) instead of file://\n\nDetails: ' + (err?.message || err));
+  }
+};
+
+/* ---------- table rendering & editing ---------- */
+function tdEditable(roast, key, placeholder=''){
+  const val = roast[key] ?? '';
+  const show = (k, v) => {
+    if(k.toLowerCase().includes('time')) return fmtTime(v);
+    return v ?? '';
+  };
+  return `<td contenteditable="true" data-id="${roast.id}" data-key="${key}" placeholder="${placeholder}">${show(key,val)}</td>`;
+}
+
+function computeLossPct(r){
+  const s = parseFloat(r.startWeight||''); const e = parseFloat(r.endWeight||'');
+  if(!isNaN(s) && !isNaN(e) && s>0) return (((s-e)/s)*100).toFixed(1);
+  return '';
+}
+
+function renderTable(){
+  const tbody = $('#logTbody');
+  tbody.innerHTML = '';
+  const rows = [...allRoasts].sort((a,b)=>(b.id>a.id?1:-1));
+
+  for(const r of rows){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.id}</td>
+      <td>${r.date||''}</td>
+      ${tdEditable(r,'roaster')}
+      ${tdEditable(r,'bean')}
+      <td>${fmtTime(r.startTime)||''}</td>
+      <td>${fmtTime(r.firstCrackTime)||''} ${r.firstCrackTemp?`/ ${r.firstCrackTemp}°C`:''}</td>
+      <td>${fmtTime(r.secondCrackTime)||''} ${r.secondCrackTemp?`/ ${r.secondCrackTemp}°C`:''}</td>
+      <td>${fmtTime(r.endTime)||''}</td>
+      ${tdEditable(r,'startWeight')}
+      ${tdEditable(r,'endWeight')}
+      ${tdEditable(r,'endTemp')}
+      <td>${computeLossPct(r)}</td>
+      ${tdEditable(r,'notes','tap to edit')}
+      <td><button class="btn small danger del" data-id="${r.id}">Delete</button></td>
+    `;
+    // Click row to open detail
+    tr.addEventListener('click', (e)=>{
+      const isDelete = e.target && e.target.classList && e.target.classList.contains('del');
+      const isEditable = e.target && e.target.getAttribute && e.target.getAttribute('contenteditable') === 'true';
+      if (isDelete || isEditable) return; // don't open when deleting or editing inline cell
+      openDetail(r.id);
+    });
+    tbody.appendChild(tr);
+  }
+
+  // inline edit handler
+  tbody.querySelectorAll('td[contenteditable="true"]').forEach(td=>{
+    td.addEventListener('blur', async (e)=>{
+      const id = td.getAttribute('data-id');
+      const key = td.getAttribute('data-key');
+      const roast = allRoasts.find(x=>x.id===id);
+      // if user edited a time field cell visually, ignore because times are not contenteditable
+      let val = td.textContent.trim();
+      // numeric normalization
+      if(['startWeight','endWeight','chargeTemp','firstCrackTemp','secondCrackTemp','endTemp'].includes(key)){
+        val = val.replace(/[^\d.]/g,'');
+      }
+      roast[key] = val;
+      await db.put(roast);
+      allRoasts = await db.all();
+      renderTable(); // re-render to refresh loss%
+    }, {passive:true});
+  });
+
+  // delete buttons
+  tbody.querySelectorAll('.del').forEach(btn=>{
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-id');
+      if(confirm(`Delete roast ${id}?`)){
+        await db.delete(id);
+        allRoasts = await db.all();
+        renderTable();
+      }
+    };
+  });
+}
+
+// ----- Detail view state & helpers -----
+let selectedRoast = null;
+const M = (id) => document.getElementById(id);
+const setIf = (id, v) => { const el=M(id); if (el) el.value = v ?? ''; };
+const getVal = (id) => (M(id)?.value ?? '').trim();
+
+function isoFromFlexible(input){
+  // Accept ISO as-is; accept "HH:MM[:SS]" today; accept locale time
+  const v = (input||'').trim();
+  if (!v) return '';
+  // ISO pass-through
+  if (!isNaN(Date.parse(v))) return new Date(v).toISOString();
+  // HH:MM or HH:MM:SS today
+  const hhmm = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+  const m = v.match(hhmm);
+  if (m){
+    const d = new Date();
+    d.setHours(parseInt(m[1],10), parseInt(m[2],10), parseInt(m[3]||'0',10), 0);
+    return d.toISOString();
+  }
+  // Fallback: try Date parse
+  const d = new Date(v);
+  return isNaN(d) ? '' : d.toISOString();
+}
+
+function openDetail(roastId){
+  selectedRoast = allRoasts.find(r => r.id === roastId);
+  if (!selectedRoast) return;
+
+  // Populate fields
+  M('detailId').textContent = selectedRoast.id;
+  M('detailStorage').textContent = `Storage: ${storageMode}`;
+  setIf('d_date', selectedRoast.date || new Date().toLocaleDateString());
+  setIf('d_roaster', selectedRoast.roaster);
+  setIf('d_bean', selectedRoast.bean);
+  setIf('d_profile', selectedRoast.profile);
+  setIf('d_startWeight', selectedRoast.startWeight);
+  setIf('d_chargeTemp', selectedRoast.chargeTemp);
+
+  setIf('d_startTime', selectedRoast.startTime);
+  setIf('d_firstCrackTime', selectedRoast.firstCrackTime);
+  setIf('d_firstCrackTemp', selectedRoast.firstCrackTemp);
+  setIf('d_secondCrackTime', selectedRoast.secondCrackTime);
+  setIf('d_secondCrackTemp', selectedRoast.secondCrackTemp);
+  setIf('d_endTime', selectedRoast.endTime);
+  setIf('d_endWeight', selectedRoast.endWeight);
+  setIf('d_endTemp', selectedRoast.endTemp);
+  setIf('d_notes', selectedRoast.notes);
+
+  M('detailModal').style.display = 'flex';
+}
+
+async function saveDetail(){
+  if (!selectedRoast) return;
+  selectedRoast.date = getVal('d_date');
+  selectedRoast.roaster = getVal('d_roaster');
+  selectedRoast.bean = getVal('d_bean');
+  selectedRoast.profile = getVal('d_profile');
+  selectedRoast.startWeight = getVal('d_startWeight');
+  selectedRoast.chargeTemp = getVal('d_chargeTemp');
+
+  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || '';
+  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || '';
+  selectedRoast.firstCrackTemp = getVal('d_firstCrackTemp');
+  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || selectedRoast.secondCrackTime || '';
+  selectedRoast.secondCrackTemp = getVal('d_secondCrackTemp');
+  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || selectedRoast.endTime || '';
+  selectedRoast.endWeight = getVal('d_endWeight');
+  selectedRoast.endTemp = getVal('d_endTemp');
+  selectedRoast.notes = getVal('d_notes');
+
+  await db.put(selectedRoast);
+  allRoasts = await db.all();
+  renderTable();
+  M('status-pill').textContent = `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+}
+
+function closeDetail(){
+  M('detailModal').style.display = 'none';
+  selectedRoast = null;
+}
+
+// Wire modal buttons
+M('detailClose').onclick = closeDetail;
+M('detailSave').onclick = async () => { await saveDetail(); closeDetail(); };
+M('detailDelete').onclick = async () => {
+  if (!selectedRoast) return;
+  if (confirm(`Delete roast ${selectedRoast.id}?`)) {
+    await db.delete(selectedRoast.id);
+    allRoasts = await db.all();
+    renderTable();
+    closeDetail();
+  }
+};
+M('detailDuplicate').onclick = async () => {
+  if (!selectedRoast) return;
+  const copy = JSON.parse(JSON.stringify(selectedRoast));
+  copy.id = 'B' + Date.now();
+  copy.date = new Date().toLocaleDateString();
+  await db.put(copy);
+  allRoasts = await db.all();
+  renderTable();
+  M('status-pill').textContent = `Duplicated ${selectedRoast.id} → ${copy.id} • Records: ${allRoasts.length}`;
+};
+
+// Quick “set to now” helpers
+M('d_setStartNow').onclick = () => { M('d_startTime').value = nowISO(); };
+M('d_setFCNow').onclick = () => { M('d_firstCrackTime').value = nowISO(); };
+M('d_setSCNow').onclick = () => { M('d_secondCrackTime').value = nowISO(); };
+M('d_setEndNow').onclick = () => { M('d_endTime').value = nowISO(); };
+
+/* ---------- CSV import/export ---------- */
+function toCSV(rows){
+  const headers = ["id","date","roaster","bean","profile","notes","startWeight","chargeTemp","startTime","firstCrackTime","firstCrackTemp","secondCrackTime","secondCrackTemp","endTime","endWeight","endTemp"];
+  const esc = v => `"${(v??'').toString().replace(/"/g,'""')}"`;
+  const lines = [headers.join(",")];
+  for(const r of rows){
+    lines.push(headers.map(h=>esc(r[h]||'')).join(","));
+  }
+  return lines.join("\n");
+}
+function download(filename, text){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:'text/csv'}));
+  a.download = filename;
+  a.click();
+}
+$('#exportCsv').onclick = async ()=>{
+  const rows = await db.all();
+  download(`roasts_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
+};
+$('#importCsv').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const text = await file.text();
+  const [header, ...lines] = text.split(/\r?\n/).filter(Boolean);
+  const cols = header.split(',');
+  const rows = lines.map(line=>{
+    const cells = [];
+    let cur='', inQ=false;
+    for(let i=0;i<line.length;i++){
+      const c=line[i];
+      if(c==='"' && line[i+1]==='"'){ cur+='"'; i++; continue; }
+      if(c==='"'){ inQ=!inQ; continue; }
+      if(c===',' && !inQ){ cells.push(cur); cur=''; continue; }
+      cur+=c;
+    }
+    cells.push(cur);
+    const obj={};
+    cols.forEach((col,i)=> obj[col.replace(/(^"|"$)/g,'')] = (cells[i]??'').replace(/(^"|"$)/g,'') );
+    // Keep ISO times if provided
+    return obj;
+  });
+  for(const r of rows){ if(r.id) await db.put(r); }
+  allRoasts = await db.all();
+  renderTable();
+  $('#status-pill').textContent = `Imported ${rows.length} rows`;
+});
+
+/* ---------- tabs ---------- */
+$$('.tab').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    const name = t.getAttribute('data-tab');
+    if(!name) return;
+    $$('.tab').forEach(x=>x.classList.toggle('active', x===t));
+    $('#tab-active').style.display = name==='active'?'block':'none';
+    $('#tab-log').style.display = name==='log'?'block':'none';
+  });
+});
+
+/* ---------- boot ---------- */
+(async function init(){
+  newActive();
+  wireActiveInputs();
+  allRoasts = await db.all();
+  renderTable();
+  await ensurePersistence();
+  document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
+})();
+</script>
+</body>
+</html>
