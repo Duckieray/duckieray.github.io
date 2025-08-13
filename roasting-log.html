@@ -333,9 +333,9 @@ function parseOrderItem(itemString) {
     bean = str;
   }
 
-  if (/1\/2lb/i.test(str)) {
+  if (/1\/2\ LB/i.test(str)) {
     startingWeight = (226.796185 * 1.2).toFixed(1);
-  } else if (/1lb/i.test(str)) {
+  } else if (/1\ LB/i.test(str)) {
     startingWeight = (453.59237 * 1.2).toFixed(1);
   }
 
