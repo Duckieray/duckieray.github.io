@@ -190,6 +190,7 @@
       <div class="sticky-actions btns" style="margin-top:14px">
         <button class="btn small" id="btnReset">Reset</button>
         <button class="btn small accent2" id="btnSave">Save Roast</button>
+        <button class="btn small success" id="btnComplete" style="display:none;">Complete Roast</button>
         <span class="hint" id="deltaHint"></span>
       </div>
     </div>
@@ -333,66 +334,55 @@ function parseOrderItem(itemString) {
     bean = str;
   }
 
-  if (/1\/2\ LB/i.test(str)) {
+  if (/1\/2/lb/i.test(str)) {
     startingWeight = (226.796185 * 1.2).toFixed(1);
-  } else if (/1\ LB/i.test(str)) {
+  } else if (/1lb/i.test(str)) {
     startingWeight = (453.59237 * 1.2).toFixed(1);
   }
 
   return { bean, profile, startingWeight };
 }
 
-function renderOrders(rows){
+function renderOrders(rows) {
   const tb = document.getElementById('ordersTbody');
   tb.innerHTML = '';
-  rows.sort((a,b)=> new Date(b.created_at) - new Date(a.created_at));
+  rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-  rows.forEach(r=>{
+  rows.forEach(r => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${new Date(r.created_at).toLocaleString()}</td>
       <td>${r.order_number || ''}</td>
       <td>${[r.billing_first_name, r.billing_last_name].filter(Boolean).join(" ")}</td>
-      <td>${itemsToText(r.items)}</td>
-      <td>${r.notes||''}</td>
-      <td>${r.status||'pending'}</td>
+      <td>${r.product_name || ''}</td>
+      <td>${r.profile || ''}</td>
+      <td>${r.starting_weight_grams || ''} g</td>
+      <td>${r.notes || ''}</td>
+      <td>${r.status || 'pending'}</td>
       <td><button class="btn small accent2" data-id="${r.id}">Start Roast</button></td>
     `;
 
     tr.querySelector('button').onclick = () => {
-      const arr = Array.isArray(r.items) ? r.items : JSON.parse(r.items||"[]");
+      // Load roast details directly from DB columns
+      window.activeRoasts = [{
+        bean: r.product_name || '',
+        profile: r.profile || '',
+        startingWeight: r.starting_weight_grams || '',
+        notes: `[Order ${r.order_number}] ${r.notes || ''}`,
+        orderId: r.id
+      }];
 
-      // Parse each product line that looks valid
-      const roastEntries = arr
-        .map(i => typeof i === "string" ? i : i.key_0)
-        .filter(line => /dark|light|medium|french/i.test(line))
-        .map(line => {
-          const parsed = parseOrderItem(line);
-          return {
-            bean: parsed.bean || "",
-            profile: parsed.profile || "",
-            startingWeight: parsed.startingWeight || "",
-            notes: `[Order ${r.order_number}] ${r.notes || ''}`,
-            orderId: r.id
-          };
-        });
+      // Load into active roast screen
+      const first = window.activeRoasts.shift();
+      active.bean = first.bean;
+      active.profile = first.profile;
+      active.startingWeight = first.startingWeight;
+      active.notes = first.notes;
+      bindActiveToUI();
+      showTab('active');
 
-      if (roastEntries.length > 0) {
-        // Queue all roasts
-        window.activeRoasts = roastEntries;
-
-        // Load first roast into active screen
-        const first = roastEntries.shift();
-        active.bean = first.bean;
-        active.profile = first.profile;
-        active.startingWeight = first.startingWeight;
-        active.notes = first.notes;
-        bindActiveToUI();
-        showTab('active');
-
-        // Mark order as roasting
-        supabase.from('order_queue').update({ status:'roasting' }).eq('id', r.id);
-      }
+      // Mark order as roasting
+      supabase.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
     };
 
     tb.appendChild(tr);
@@ -415,11 +405,38 @@ function finishRoast() {
   }
 }
 
+async function completeRoast(orderId) {
+  const { error } = await supabase
+    .from('order_queue')
+    .update({ status: 'completed' })
+    .eq('id', orderId);
+
+  if (error) {
+    console.error('Error completing roast:', error);
+    alert('Could not complete roast.');
+  } else {
+    // Refresh the roasting queue after completion
+    loadOrders();
+  }
+}
+
 // Load existing orders once
 async function loadOrders(){
-  const { data, error } = await supabase.from('order_queue')
-    .select('*')
-    .in('status', ['pending','roasting'])
+  const { data, error } = await supabase
+    .from('order_queue')
+    .select(`
+      id,
+      created_at,
+      order_number,
+      billing_first_name,
+      billing_last_name,
+      product_name,
+      profile,
+      starting_weight_grams,
+      notes,
+      status
+    `)
+    .neq('status', 'completed') // hide completed roasts
     .order('created_at', { ascending: false });
   if (error) { console.warn(error); return; }
   renderOrders(data||[]);
@@ -691,6 +708,21 @@ $('#btnSave').onclick = async () => {
   } catch (err) {
     alert('Save failed.\n\nTip: avoid Private/Incognito and open via http(s) instead of file://\n\nDetails: ' + (err?.message || err));
   }
+};
+
+document.getElementById('btnComplete').onclick = async () => {
+  if (!active.startTime) { 
+    alert('Start the roast before completing it.');
+    return; 
+  }
+
+  await db.put(active); // save roast locally
+  if (active.orderId) {
+    await completeRoast(active.orderId); // mark as completed in Supabase
+  }
+
+  newActive();
+  showTab('orders'); // return to order queue
 };
 
 /* ---------- table rendering & editing ---------- */
