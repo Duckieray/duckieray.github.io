@@ -301,12 +301,13 @@ supabase.auth.onAuthStateChange(async (event, session) => {
   }
 });
 
-// Render orders
 function itemsToText(items){
   try {
     const arr = Array.isArray(items) ? items : JSON.parse(items||"[]");
-    return arr.map(i => `${i.title || i.name} x${i.qty || i.quantity || 1}`).join(", ");
-  } catch { return ""; }
+    return arr.join(", "); // just join your string array
+  } catch {
+    return items || "";
+  }
 }
 
 function renderOrders(rows){
@@ -317,8 +318,8 @@ function renderOrders(rows){
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${new Date(r.created_at).toLocaleString()}</td>
-      <td>${r.order_id}</td>
-      <td>${r.customer_name||''}</td>
+      <td>${r.order_number || ''}</td>
+      <td>${[r.billing_first_name, r.billing_last_name].filter(Boolean).join(" ")}</td>
       <td>${itemsToText(r.items)}</td>
       <td>${r.notes||''}</td>
       <td>${r.status||'pending'}</td>
@@ -327,7 +328,7 @@ function renderOrders(rows){
     tr.querySelector('button').onclick = () => {
       // Pre-fill Active Roast
       active.bean = itemsToText(r.items) || active.bean;
-      active.notes = (r.notes ? `[Order ${r.order_id}] ` : `[Order ${r.order_id}]`) + (r.notes||'');
+      active.notes = (r.notes ? `[Order ${r.order_number}] ` : `[Order ${r.order_number}]`) + (r.notes||'');
       bindActiveToUI();
       showTab('active');
       // Optionally mark order as "roasting"
