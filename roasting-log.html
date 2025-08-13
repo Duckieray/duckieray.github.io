@@ -669,34 +669,48 @@ $('#btnEnd').onclick = () => {
 $('#btnReset').onclick = () => newActive();
 
 $('#btnSave').onclick = async () => {
-  if (!active.startTime) { alert('Tap Start to begin the roast.'); return; }
+  if (!active.startTime) { 
+    alert('Tap Start to begin the roast.'); 
+    return; 
+  }
   try {
+    // 1. Save roast locally
     await db.put(active);
     allRoasts = await db.all();
     renderTable();
+
+    // 2. Mark linked order as completed in Supabase (if applicable)
+    if (active.orderId) {
+      const { error } = await supabase
+        .from('order_queue')
+        .update({ status: 'completed' })
+        .eq('id', active.orderId);
+
+      if (error) {
+        console.error('Error completing order in Supabase:', error);
+      } else {
+        console.log(`Order ${active.orderId} marked as completed`);
+      }
+    }
+
+    // 3. Update UI status pill
     const pill = document.getElementById('status-pill');
     pill.textContent = `Saved ${active.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+
+    // 4. Reset active roast
     newActive();
+
+    // 5. Optional: refresh orders list immediately
+    if (typeof loadOrders === 'function') {
+      loadOrders();
+    }
+    
   } catch (err) {
-    alert('Save failed.\n\nTip: avoid Private/Incognito and open via http(s) instead of file://\n\nDetails: ' + (err?.message || err));
+    alert(
+      'Save failed.\n\nTip: avoid Private/Incognito and open via http(s) instead of file://\n\nDetails: ' +
+      (err?.message || err)
+    );
   }
-};
-
-document.getElementById('btnComplete').onclick = async () => {
-  if (!active.startTime) { 
-    alert('Start the roast before completing it.');
-    return; 
-  }
-
-  await db.put(active); // save roast locally first
-  if (active.orderId) {
-    await completeRoast(active.orderId); // mark as completed in Supabase
-  }
-
-  // reset UI
-  document.getElementById('btnComplete').style.display = 'none';
-  newActive();
-  showTab('orders'); // back to queue
 };
 
 /* ---------- table rendering & editing ---------- */
