@@ -311,38 +311,6 @@ function itemsToText(items){
   }
 }
 
-function parseOrderItem(itemString) {
-  const str = itemString.replace(/\s+/g, " ").trim();
-  const profiles = ["Light", "Medium", "Dark", "French"];
-
-  let profile = "";
-  let bean = "";
-  let startingWeight = "";
-
-  for (const p of profiles) {
-    if (str.toLowerCase().includes(p.toLowerCase())) {
-      profile = p;
-      break;
-    }
-  }
-
-  if (profile) {
-    const afterItem = str.replace(/^ITEM\s*/i, "");
-    const parts = afterItem.split(new RegExp(profile, "i"));
-    bean = parts[0].trim();
-  } else {
-    bean = str;
-  }
-
-  if (/1\/2lb/i.test(str)) {
-    startingWeight = (226.796185 * 1.2).toFixed(1);
-  } else if (/1lb/i.test(str)) {
-    startingWeight = (453.59237 * 1.2).toFixed(1);
-  }
-
-  return { bean, profile, startingWeight };
-}
-
 function renderOrders(rows) {
   const tb = document.getElementById('ordersTbody');
   tb.innerHTML = '';
@@ -363,27 +331,29 @@ function renderOrders(rows) {
     `;
 
   tr.querySelector('button').onclick = () => {
-    const roastEntry = {
-      bean: r.product_name || "",
-      profile: r.profile || "",
-      startingWeight: r.starting_weight || "",
-      notes: `[Order ${r.order_number}] ${r.notes || ''}`,
-      orderId: r.id
-    };
+    // coerce whatever is in starting_weight_grams into a number (handles "544.3 g" or 544.3)
+    const grams = (() => {
+      const v = (r.starting_weight_grams ?? '').toString();
+      const n = parseFloat(v.replace(/[^\d.]/g, ''));
+      return isNaN(n) ? '' : n;
+    })();
 
-    // Queue the roast
-    window.activeRoasts = [roastEntry];
+    // Fill the active roast fields the UI actually binds to
+    active.bean = r.product_name || '';
+    active.profile = r.profile || '';
+    active.startWeight = grams;          // <-- key change (not "startingWeight")
+    active.notes = `[Order ${r.order_number}] ${r.notes || ''}`;
+    active.orderId = r.id;               // so we can complete it later
 
-    // Load roast into active screen
-    active.bean = roastEntry.bean;
-    active.profile = roastEntry.profile;
-    active.startingWeight = roastEntry.startingWeight;
-    active.notes = roastEntry.notes;
     bindActiveToUI();
     showTab('active');
 
+    // Show the Complete button while this roast is tied to an order
+    const btnComplete = document.getElementById('btnComplete');
+    if (btnComplete) btnComplete.style.display = '';
+
     // Mark order as roasting
-    supabase.from('order_queue').update({ status:'roasting' }).eq('id', r.id);
+    supabase.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
   };
 
     tb.appendChild(tr);
@@ -624,9 +594,11 @@ function newActive(){
     startWeight: '', chargeTemp: '',
     startTime: '', firstCrackTime: '', firstCrackTemp: '',
     secondCrackTime: '', secondCrackTemp: '',
-    endTime: '', endWeight: '', endTemp: ''
+    endTime: '', endWeight: '', endTemp: '',
+    orderId: null
   };
   bindActiveToUI();
+  document.getElementById('btnComplete')?.style && (document.getElementById('btnComplete').style.display = 'none'); // hide it
   $('#status-pill').textContent = 'Ready';
   $('#deltaHint').textContent = '';
 }
@@ -716,13 +688,15 @@ document.getElementById('btnComplete').onclick = async () => {
     return; 
   }
 
-  await db.put(active); // save roast locally
+  await db.put(active); // save roast locally first
   if (active.orderId) {
     await completeRoast(active.orderId); // mark as completed in Supabase
   }
 
+  // reset UI
+  document.getElementById('btnComplete').style.display = 'none';
   newActive();
-  showTab('orders');
+  showTab('orders'); // back to queue
 };
 
 /* ---------- table rendering & editing ---------- */
