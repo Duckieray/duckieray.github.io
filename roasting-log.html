@@ -310,10 +310,43 @@ function itemsToText(items){
   }
 }
 
+function parseOrderItem(itemString) {
+  const str = itemString.replace(/\s+/g, " ").trim();
+  const profiles = ["Light", "Medium", "Dark", "French"];
+
+  let profile = "";
+  let bean = "";
+  let startingWeight = "";
+
+  for (const p of profiles) {
+    if (str.toLowerCase().includes(p.toLowerCase())) {
+      profile = p;
+      break;
+    }
+  }
+
+  if (profile) {
+    const afterItem = str.replace(/^ITEM\s*/i, "");
+    const parts = afterItem.split(new RegExp(profile, "i"));
+    bean = parts[0].trim();
+  } else {
+    bean = str;
+  }
+
+  if (/1\/2lb/i.test(str)) {
+    startingWeight = (226.796185 * 1.2).toFixed(1);
+  } else if (/1lb/i.test(str)) {
+    startingWeight = (453.59237 * 1.2).toFixed(1);
+  }
+
+  return { bean, profile, startingWeight };
+}
+
 function renderOrders(rows){
   const tb = document.getElementById('ordersTbody');
   tb.innerHTML = '';
   rows.sort((a,b)=> new Date(b.created_at) - new Date(a.created_at));
+
   rows.forEach(r=>{
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -325,17 +358,61 @@ function renderOrders(rows){
       <td>${r.status||'pending'}</td>
       <td><button class="btn small accent2" data-id="${r.id}">Start Roast</button></td>
     `;
+
     tr.querySelector('button').onclick = () => {
-      // Pre-fill Active Roast
-      active.bean = itemsToText(r.items) || active.bean;
-      active.notes = (r.notes ? `[Order ${r.order_number}] ` : `[Order ${r.order_number}]`) + (r.notes||'');
-      bindActiveToUI();
-      showTab('active');
-      // Optionally mark order as "roasting"
-      supabase.from('order_queue').update({ status:'roasting' }).eq('id', r.id);
+      const arr = Array.isArray(r.items) ? r.items : JSON.parse(r.items||"[]");
+
+      // Parse each product line that looks valid
+      const roastEntries = arr
+        .map(i => typeof i === "string" ? i : i.key_0)
+        .filter(line => /dark|light|medium|french/i.test(line))
+        .map(line => {
+          const parsed = parseOrderItem(line);
+          return {
+            bean: parsed.bean || "",
+            profile: parsed.profile || "",
+            startingWeight: parsed.startingWeight || "",
+            notes: `[Order ${r.order_number}] ${r.notes || ''}`,
+            orderId: r.id
+          };
+        });
+
+      if (roastEntries.length > 0) {
+        // Queue all roasts
+        window.activeRoasts = roastEntries;
+
+        // Load first roast into active screen
+        const first = roastEntries.shift();
+        active.bean = first.bean;
+        active.profile = first.profile;
+        active.startingWeight = first.startingWeight;
+        active.notes = first.notes;
+        bindActiveToUI();
+        showTab('active');
+
+        // Mark order as roasting
+        supabase.from('order_queue').update({ status:'roasting' }).eq('id', r.id);
+      }
     };
+
     tb.appendChild(tr);
   });
+}
+
+function finishRoast() {
+  saveRoastData(active); // your existing save logic
+
+  if (window.activeRoasts && window.activeRoasts.length > 0) {
+    const next = window.activeRoasts.shift();
+    active.bean = next.bean;
+    active.profile = next.profile;
+    active.startingWeight = next.startingWeight;
+    active.notes = next.notes;
+    bindActiveToUI();
+    showTab('active');
+  } else {
+    showTab('orders'); // back to queue if done
+  }
 }
 
 // Load existing orders once
