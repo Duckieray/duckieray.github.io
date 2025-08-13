@@ -52,6 +52,7 @@
   .modal-actions{display:flex;gap:10px;justify-content:flex-end;position:sticky;bottom:0;background:linear-gradient(180deg, rgba(21,24,35,0), #151823 40%);padding-top:10px;margin-top:12px}
   .badge{padding:4px 8px;border-radius:999px;border:1px solid #2a324c;background:#121726;color:#8b92a6;font-size:12px}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -114,6 +115,10 @@
     <button class="tab" data-tab="log">Roast Log</button>
     <span class="pill" id="status-pill">Ready</span>
     <div class="right split">
+      <button class="tab btn small" id="orderQueueTab">Order Queue</button>
+      <span id="authStatus" class="pill">Not signed in</span>
+      <button class="tab btn small" id="btnSignIn">Sign in</button>
+      <button class="tab btn small" id="btnSignOut" style="display:none;">Sign out</button>
       <button class="tab btn small" id="exportCsv">Export CSV</button>
       <label class="tab btn small" style="cursor:pointer">Import CSV
         <input id="importCsv" type="file" accept=".csv" style="display:none" />
@@ -222,7 +227,162 @@
   </div>
 </div>
 
+<div id="tab-orders" style="display:none">
+  <div class="card">
+    <h2>Order Queue</h2>
+    <div class="hint">New web orders appear here automatically after you sign in.</div>
+    <div style="overflow:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Order #</th>
+            <th>Customer</th>
+            <th>Items</th>
+            <th>Notes</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="ordersTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <script>
+// ----- Supabase config -----
+const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// UI helpers
+const authStatus = document.getElementById('authStatus');
+const btnSignIn  = document.getElementById('btnSignIn');
+const btnSignOut = document.getElementById('btnSignOut');
+const ordersTabButton = document.getElementById('orderQueueTab');
+
+function showTab(name){
+  document.getElementById('tab-active').style.display = name==='active' ? 'block' : 'none';
+  document.getElementById('tab-log').style.display    = name==='log'    ? 'block' : 'none';
+  document.getElementById('tab-orders').style.display = name==='orders' ? 'block' : 'none';
+}
+
+// Sign-in with magic link (super simple for the user)
+btnSignIn.onclick = async () => {
+  const email = prompt("Enter your work email to sign in:");
+  if (!email) return;
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
+  if (error) return alert("Sign-in failed: " + error.message);
+  alert("Check your email for a sign-in link. After you tap it, return to this page.");
+};
+
+btnSignOut.onclick = async () => {
+  await supabase.auth.signOut();
+  authStatus.textContent = "Signed out";
+  btnSignIn.style.display = '';
+  btnSignOut.style.display = 'none';
+};
+
+// Keep UI in sync with auth state
+supabase.auth.onAuthStateChange(async (event, session) => {
+  if (session?.user) {
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+    startOrdersRealtime();
+    loadOrders();
+  } else {
+    authStatus.textContent = "Not signed in";
+    btnSignIn.style.display = '';
+    btnSignOut.style.display = 'none';
+    stopOrdersRealtime();
+    clearOrders();
+  }
+});
+
+// Render orders
+function itemsToText(items){
+  try {
+    const arr = Array.isArray(items) ? items : JSON.parse(items||"[]");
+    return arr.map(i => `${i.title || i.name} x${i.qty || i.quantity || 1}`).join(", ");
+  } catch { return ""; }
+}
+
+function renderOrders(rows){
+  const tb = document.getElementById('ordersTbody');
+  tb.innerHTML = '';
+  rows.sort((a,b)=> new Date(b.created_at) - new Date(a.created_at));
+  rows.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${new Date(r.created_at).toLocaleString()}</td>
+      <td>${r.order_id}</td>
+      <td>${r.customer_name||''}</td>
+      <td>${itemsToText(r.items)}</td>
+      <td>${r.notes||''}</td>
+      <td>${r.status||'pending'}</td>
+      <td><button class="btn small accent2" data-id="${r.id}">Start Roast</button></td>
+    `;
+    tr.querySelector('button').onclick = () => {
+      // Pre-fill Active Roast
+      active.bean = itemsToText(r.items) || active.bean;
+      active.notes = (r.notes ? `[Order ${r.order_id}] ` : `[Order ${r.order_id}]`) + (r.notes||'');
+      bindActiveToUI();
+      showTab('active');
+      // Optionally mark order as "roasting"
+      supabase.from('order_queue').update({ status:'roasting' }).eq('id', r.id);
+    };
+    tb.appendChild(tr);
+  });
+}
+
+// Load existing orders once
+async function loadOrders(){
+  const { data, error } = await supabase.from('order_queue')
+    .select('*')
+    .in('status', ['pending','roasting'])
+    .order('created_at', { ascending: false });
+  if (error) { console.warn(error); return; }
+  renderOrders(data||[]);
+}
+
+function clearOrders(){ document.getElementById('ordersTbody').innerHTML=''; }
+
+// Realtime subscription
+let ordersChannel = null;
+function startOrdersRealtime(){
+  if (ordersChannel) return;
+  ordersChannel = supabase.channel('orders-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'order_queue' }, payload => {
+      loadOrders();
+    })
+    .subscribe();
+}
+function stopOrdersRealtime(){
+  if (ordersChannel) supabase.removeChannel(ordersChannel);
+  ordersChannel = null;
+}
+
+// Wire the new tab button (and keep your existing tab logic)
+ordersTabButton.addEventListener('click', () => {
+  $$('.tab').forEach(x=>x.classList.remove('active'));
+  ordersTabButton.classList.add('active');
+  showTab('orders');
+});
+
+// On boot, check session
+(async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) {
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+    startOrdersRealtime();
+    loadOrders();
+  }
+})();
+
 // ------- Robust storage: IndexedDB + fallback + normalization -------
 const DB_NAME = 'roastingLogDB';
 const STORE   = 'roasts';
