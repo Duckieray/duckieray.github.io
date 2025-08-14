@@ -255,7 +255,7 @@
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-let supabaseClient = supabase;
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 // UI helpers
 const authStatus = document.getElementById('authStatus');
@@ -279,12 +279,12 @@ btnSignIn.onclick = async () => {
 };
 
 btnSignOut.addEventListener('click', async () => {
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabaseClient.auth.signOut();
   if (error) {
     console.error('Error signing out:', error.message);
+    alert('Could not sign out.');
     return;
   }
-  window.location.reload();
 });
 
 supabase.auth.onAuthStateChange(async (event, session) => {
