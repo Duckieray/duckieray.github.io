@@ -904,10 +904,27 @@ $$('.tab').forEach(t=>{
 (async function init(){
   newActive();
   wireActiveInputs();
-  if (sb) {
-    allRoasts = await db.all();
+
+  const { data: { session } } = await sb.auth.getSession();
+
+  if (session?.user) {
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+
+    startOrdersRealtime();
+    loadOrders();
+
+    const { data } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
+    allRoasts = data || [];
     renderTable();
+  } else {
+    authStatus.textContent = "Not signed in";
+    btnSignIn.style.display = '';
+    btnSignOut.style.display = 'none';
+    renderTable(); // draw empty table gracefully
   }
+
   await ensurePersistence();
   document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
