@@ -398,7 +398,7 @@ function finishRoast() {
 }
 
 async function completeRoast(orderId) {
-  const { error } = await supabaseClient
+  const { error } = await sb
     .from('order_queue')
     .update({ status: 'completed' })
     .eq('id', orderId);
@@ -414,7 +414,7 @@ async function completeRoast(orderId) {
 
 // Load existing orders once
 async function loadOrders(){
-  const { data, error } = await supabaseClient
+  const { data, error } = await sb
     .from('order_queue')
     .select(`
       id,
@@ -617,7 +617,7 @@ $('#btnSave').onclick = async () => {
 
     // 2. Mark linked order as completed in Supabase (if applicable)
     if (active.orderId) {
-      const { error } = await supabaseClient
+      const { error } = await sb
         .from('order_queue')
         .update({ status: 'completed' })
         .eq('id', active.orderId);
@@ -904,7 +904,7 @@ $$('.tab').forEach(t=>{
 (async function init(){
   newActive();
   wireActiveInputs();
-  if (supabaseClient) {
+  if (sb) {
     allRoasts = await db.all();
     renderTable();
   }
