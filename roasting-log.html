@@ -254,8 +254,7 @@
 // ----- Supabase config -----
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 // UI helpers
 const authStatus = document.getElementById('authStatus');
@@ -273,43 +272,45 @@ function showTab(name){
 btnSignIn.onclick = async () => {
   const email = prompt("Enter your work email to sign in:");
   if (!email) return;
-  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.href }
+  });
   if (error) return alert("Sign-in failed: " + error.message);
   alert("Check your email for a sign-in link. After you tap it, return to this page.");
 };
 
 btnSignOut.addEventListener('click', async () => {
-  const { error } = await supabaseClient.auth.signOut();
+  const { error } = await sb.auth.signOut();
   if (error) {
     console.error('Error signing out:', error.message);
     alert('Could not sign out.');
-    return;
   }
 });
 
-supabase.auth.onAuthStateChange(async (event, session) => {
+sb.auth.onAuthStateChange(async (_event, session) => {
   if (session?.user) {
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
 
-    startOrdersRealtime();
-    loadOrders();
+    startOrdersRealtime();  // uses sb inside
+    loadOrders();           // uses sb inside
 
-    supabaseClient
+    sb
       .channel('roasting-log-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
-        const { data } = await supabaseClient.from('roasting_log').select('*');
+        const { data } = await sb.from('roasting_log').select('*');
         allRoasts = data || [];
         renderTable();
       })
       .subscribe();
 
-    const { data } = await supabaseClient.from('roasting_log').select('*');
+    const { data } = await sb.from('roasting_log').select('*');
     allRoasts = data || [];
     renderTable();
   } else {
-    supabaseClient = null;
+    // DO NOT set the client to null
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
     btnSignOut.style.display = 'none';
@@ -373,7 +374,7 @@ function renderOrders(rows) {
     if (btnComplete) btnComplete.style.display = '';
 
     // Mark order as roasting
-    supabaseClient.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
+    sb.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
   };
 
     tb.appendChild(tr);
@@ -438,14 +439,14 @@ function clearOrders(){ document.getElementById('ordersTbody').innerHTML=''; }
 let ordersChannel = null;
 function startOrdersRealtime(){
   if (ordersChannel) return;
-  ordersChannel = supabaseClient.channel('orders-realtime')
+  ordersChannel = sb.channel('orders-realtime')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'order_queue' }, payload => {
       loadOrders();
     })
     .subscribe();
 }
 function stopOrdersRealtime(){
-  if (ordersChannel) supabaseClient.removeChannel(ordersChannel);
+  if (ordersChannel) sb.removeChannel(ordersChannel);
   ordersChannel = null;
 }
 
@@ -458,18 +459,14 @@ ordersTabButton.addEventListener('click', () => {
 
 // On boot, check session
 (async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-
+  const { data: { session } } = await sb.auth.getSession();
   if (session?.user) {
-    supabaseClient = supabase; // same instance
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
-
     startOrdersRealtime();
     loadOrders();
   } else {
-    supabaseClient = null;
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
     btnSignOut.style.display = 'none';
@@ -479,8 +476,7 @@ ordersTabButton.addEventListener('click', () => {
 // ------- Robust storage: Supabase table -------
 const db = {
   async all() {
-    if (!supabaseClient) return [];
-    const { data, error } = await supabaseClient
+    const { data, error } = await sb
       .from('roasting_log')
       .select('*')
       .order('created_at', { ascending: false });
@@ -488,22 +484,13 @@ const db = {
     return data;
   },
   async put(roast) {
-    if (!supabaseClient) {
-      console.warn("No Supabase client available — are you signed in?");
-      return;
-    }
-    const { error } = await supabaseClient
+    const { error } = await sb
       .from('roasting_log')
       .upsert(roast, { onConflict: 'id' });
-    if (error) {
-      console.error('Error saving roast:', error);
-    } else {
-      console.log('Roast saved:', roast.id);
-    }
+    if (error) console.error('Error saving roast:', error);
   },
   async delete(id) {
-    if (!supabaseClient) return;
-    const { error } = await supabaseClient
+    const { error } = await sb
       .from('roasting_log')
       .delete()
       .eq('id', id);
@@ -625,10 +612,6 @@ $('#btnSave').onclick = async () => {
   try {
     // 1. Save roast locally
     await db.put(active);
-    if (!supabaseClient) {
-      console.warn("No Supabase client available — are you signed in?");
-      return;
-    }
     allRoasts = await db.all();
     renderTable();
 
