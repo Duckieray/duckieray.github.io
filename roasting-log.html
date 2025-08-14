@@ -254,6 +254,8 @@
 // ----- Supabase config -----
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let supabaseClient = supabase;
 
 // UI helpers
 const authStatus = document.getElementById('authStatus');
@@ -284,9 +286,6 @@ btnSignOut.addEventListener('click', async () => {
   }
   window.location.reload();
 });
-
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-let supabaseClient = null;
 
 supabase.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) {
@@ -520,11 +519,18 @@ const db = {
     return data;
   },
   async put(roast) {
-    if (!supabaseClient) return;
+    if (!supabaseClient) {
+      console.warn("No Supabase client available — are you signed in?");
+      return;
+    }
     const { error } = await supabaseClient
       .from('roasting_log')
       .upsert(roast, { onConflict: 'id' });
-    if (error) console.error(error);
+    if (error) {
+      console.error('Error saving roast:', error);
+    } else {
+      console.log('Roast saved:', roast.id);
+    }
   },
   async delete(id) {
     if (!supabaseClient) return;
