@@ -295,7 +295,7 @@ sb.auth.onAuthStateChange(async (_event, session) => {
     if (window.location.hash && /access_token=/.test(window.location.hash)) {
       history.replaceState({}, document.title, window.location.pathname);
     }
-    
+
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
@@ -891,15 +891,16 @@ $$('.tab').forEach(t=>{
 
 /* ---------- boot ---------- */
 (async function init(){
-  // Clean up any auth hash fragments so refreshes don’t “replay” them
-  if (window.location.hash && /access_token=/.test(window.location.hash)) {
-    history.replaceState({}, document.title, window.location.pathname);
-  }
-
   newActive();
   wireActiveInputs();
 
-  const { data: { session } } = await sb.auth.getSession();
+  // Step 1: Get the session first (this processes magic link hash)
+  const { data: { session }, error } = await sb.auth.getSession();
+
+  // Step 2: Now it's safe to strip the hash
+  if (window.location.hash && /access_token=/.test(window.location.hash)) {
+    history.replaceState({}, document.title, window.location.pathname);
+  }
 
   if (session?.user) {
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
@@ -916,12 +917,13 @@ $$('.tab').forEach(t=>{
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
     btnSignOut.style.display = 'none';
-    renderTable(); // draw empty table gracefully
+    renderTable();
   }
 
   await ensurePersistence();
   document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
+
 </script>
 </body>
 </html>
