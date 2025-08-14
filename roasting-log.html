@@ -464,6 +464,15 @@ $('#btnReset').onclick = () => newActive();
 
 $('#btnSave').onclick = async () => {
   if (!active.startTime) return alert('Tap Start to begin the roast.');
+
+  const roastToSave = {
+    ...active,
+    startTime: active.startTime || null,
+    firstCrackTime: active.firstCrackTime || null,
+    secondCrackTime: active.secondCrackTime || null,
+    endTime: active.endTime || null
+  };
+
   try {
     await db.put(active);
     allRoasts = await db.all();
@@ -604,12 +613,12 @@ async function saveDetail(){
   selectedRoast.profile = getVal('d_profile');
   selectedRoast.startWeight = getVal('d_startWeight');
   selectedRoast.chargeTemp = getVal('d_chargeTemp');
-  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || '';
-  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || '';
+  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || null;
+  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || null;
   selectedRoast.firstCrackTemp = getVal('d_firstCrackTemp');
-  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || selectedRoast.secondCrackTime || '';
+  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || null;
   selectedRoast.secondCrackTemp = getVal('d_secondCrackTemp');
-  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || selectedRoast.endTime || '';
+  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || null;
   selectedRoast.endWeight = getVal('d_endWeight');
   selectedRoast.endTemp = getVal('d_endTemp');
   selectedRoast.notes = getVal('d_notes');
