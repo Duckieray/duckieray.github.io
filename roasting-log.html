@@ -255,14 +255,54 @@
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
 const REDIRECT_URL = 'https://duckieray.github.io/roasting-log.html';
+let sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let authClient = sb; // will swap to an authenticated client after login
+let ordersChannel = null;
+let roastingChannel = null;
 
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
-  auth: {
-    detectSessionInUrl: true,
-    persistSession: true,
-    autoRefreshToken: true,
-  },
-});
+async function handleAuthSession(session) {
+  if (session?.user) {
+    // Authenticated client with JWT
+    authClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+      global: {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      }
+    });
+
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+
+    // Load all data once
+    await loadAllData();
+
+    // Start realtime listeners once
+    startOrdersRealtime();
+    startRoastingRealtime();
+
+  } else {
+    authClient = sb; // fallback to anon
+    authStatus.textContent = "Not signed in";
+    btnSignIn.style.display = '';
+    btnSignOut.style.display = 'none';
+
+    stopOrdersRealtime();
+    stopRoastingRealtime();
+    clearOrders();
+    allRoasts = [];
+    renderTable();
+  }
+}
+
+// Wire this once:
+sb.auth.onAuthStateChange((_event, session) => handleAuthSession(session));
+
+// And call it immediately on page load:
+(async () => {
+  const { data: { session } } = await authClient.auth.getSession();
+  handleAuthSession(session);
+})();
+
 
 // tiny helper so your sign-in handler doesn't throw:
 function uiError(what, err) {
@@ -286,7 +326,7 @@ function showTab(name){
 btnSignIn.onclick = async () => {
   const email = prompt("Enter your work email to sign in:");
   if (!email) return;
-  const { error } = await sb.auth.signInWithOtp({
+  const { error } = await authClient.auth.signInWithOtp({
     email,
     options: { emailRedirectTo: REDIRECT_URL }
   });
@@ -295,19 +335,10 @@ btnSignIn.onclick = async () => {
 };
 
 btnSignOut.addEventListener('click', async () => {
-  await sb.auth.signOut();
+  await authClient.auth.signOut();
   allRoasts = [];
   renderTable();
 });
-
-function itemsToText(items){
-  try {
-    const arr = Array.isArray(items) ? items : JSON.parse(items||"[]");
-    return arr.join(", "); // just join your string array
-  } catch {
-    return items || "";
-  }
-}
 
 function renderOrders(rows) {
   const tb = document.getElementById('ordersTbody');
@@ -346,12 +377,8 @@ function renderOrders(rows) {
     bindActiveToUI();
     showTab('active');
 
-    // Show the Complete button while this roast is tied to an order
-    const btnComplete = document.getElementById('btnComplete');
-    if (btnComplete) btnComplete.style.display = '';
-
     // Mark order as roasting
-    sb.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
+    authClient.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
   };
 
     tb.appendChild(tr);
@@ -359,8 +386,6 @@ function renderOrders(rows) {
 }
 
 function finishRoast() {
-  saveRoastData(active); // your existing save logic
-
   if (window.activeRoasts && window.activeRoasts.length > 0) {
     const next = window.activeRoasts.shift();
     active.bean = next.bean;
@@ -375,7 +400,7 @@ function finishRoast() {
 }
 
 async function completeRoast(orderId) {
-  const { error } = await sb
+  const { error } = await authClient
     .from('order_queue')
     .update({ status: 'completed' })
     .eq('id', orderId);
@@ -391,7 +416,7 @@ async function completeRoast(orderId) {
 
 // Load existing orders once
 async function loadOrders(){
-  const { data, error } = await sb
+  const { data, error } = await authClient
     .from('order_queue')
     .select(`
       id,
@@ -413,24 +438,38 @@ async function loadOrders(){
 function clearOrders(){ document.getElementById('ordersTbody').innerHTML=''; }
 
 // Realtime subscription
-let ordersChannel = null;
-function startOrdersRealtime(){
-  if (ordersChannel) return;
-  ordersChannel = sb.channel('orders-realtime')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'order_queue' }, payload => {
+function startOrdersRealtime() {
+  if (ordersChannel) return; // already started
+  ordersChannel = authClient
+    .channel('orders-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'order_queue' }, () => {
       loadOrders();
     })
     .subscribe();
 }
 
-function stopOrdersRealtime(){
-  if (ordersChannel) sb.removeChannel(ordersChannel);
-  ordersChannel = null;
+function stopOrdersRealtime() {
+  if (ordersChannel) {
+    authClient.removeChannel(ordersChannel);
+    ordersChannel = null;
+  }
+}
+
+function startRoastingRealtime() {
+  if (roastingChannel) return; // already started
+  roastingChannel = authClient
+    .channel('roasting-log-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, () => {
+      loadRoasts();
+    })
+    .subscribe();
 }
 
 function stopRoastingRealtime() {
-  if (roastingChannel) sb.removeChannel(roastingChannel);
-  roastingChannel = null;
+  if (roastingChannel) {
+    authClient.removeChannel(roastingChannel);
+    roastingChannel = null;
+  }
 }
 
 // Wire the new tab button (and keep your existing tab logic)
@@ -443,7 +482,7 @@ ordersTabButton.addEventListener('click', () => {
 // ------- Robust storage: Supabase table -------
 const db = {
   async all() {
-    const { data, error } = await sb
+    const { data, error } = await authClient
       .from('roasting_log')
       .select('*')
       .order('created_at', { ascending: false });
@@ -451,13 +490,13 @@ const db = {
     return data;
   },
   async put(roast) {
-    const { error } = await sb
+    const { error } = await authClient
       .from('roasting_log')
       .upsert(roast, { onConflict: 'id' });
     if (error) console.error('Error saving roast:', error);
   },
   async delete(id) {
-    const { error } = await sb
+    const { error } = await authClient
       .from('roasting_log')
       .delete()
       .eq('id', id);
@@ -584,7 +623,7 @@ $('#btnSave').onclick = async () => {
 
     // 2. Mark linked order as completed in Supabase (if applicable)
     if (active.orderId) {
-      const { error } = await sb
+      const { error } = await authClient
         .from('order_queue')
         .update({ status: 'completed' })
         .eq('id', active.orderId);
@@ -868,8 +907,6 @@ $$('.tab').forEach(t=>{
 
 
 /* --------- load data ------- */
-let roastingChannel = null;
-
 async function loadAllData() {
   // Load current roasts
   allRoasts = await db.all();
@@ -878,89 +915,9 @@ async function loadAllData() {
   // Load orders
   loadOrders();
   startOrdersRealtime();
-
-  // Set up realtime for roasting log
-  if (roastingChannel) {
-    roastingChannel.unsubscribe();
-    roastingChannel = null;
-  }
-
-  roastingChannel = sb
-    .channel('roasting-log-realtime')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
-      console.log('🔄 Roasting log updated');
-      allRoasts = await db.all();
-      renderTable();
-    })
-    .subscribe();
+  startRoastingRealtime();
 }
 
-/* ---------- boot ---------- */
-function setupAuthenticatedClient(session) {
-  sb = window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_ANON,
-    { global: { headers: { Authorization: `Bearer ${session.access_token}` } } }
-  );
-}
-
-function updateAuthUI(isSignedIn, email = '') {
-  authStatus.textContent = isSignedIn ? `Signed in: ${email}` : 'Not signed in';
-  btnSignIn.style.display = isSignedIn ? 'none' : '';
-  btnSignOut.style.display = isSignedIn ? '' : 'none';
-}
-
-(async function init() {
-  newActive();
-  wireActiveInputs();
-
-  // Step 1: Subscribe to auth changes
-  sb.auth.onAuthStateChange(async (_event, session) => {
-    if (session?.user) {
-      authStatus.textContent = "Signed in: " + (session.user.email || 'user');
-      btnSignIn.style.display = 'none';
-      btnSignOut.style.display = '';
-
-      startOrdersRealtime();
-      loadOrders();
-
-      const { data } = await sb
-        .from('roasting_log')
-        .select('*')
-        .order('created_at', { ascending: false });
-      allRoasts = data || [];
-      renderTable();
-    } else {
-      authStatus.textContent = "Not signed in";
-      btnSignIn.style.display = '';
-      btnSignOut.style.display = 'none';
-      allRoasts = [];
-      renderTable();
-    }
-  });
-
-  // Step 2: Ask Supabase for any existing session (also processes magic link from hash automatically)
-  const { data: { session }, error } = await sb.auth.getSession();
-  if (error) console.error("Error getting session:", error);
-
-  // Step 3: Trigger UI state immediately if session exists
-  if (session?.user) {
-    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
-    btnSignIn.style.display = 'none';
-    btnSignOut.style.display = '';
-    startOrdersRealtime();
-    loadOrders();
-
-    const { data } = await sb
-      .from('roasting_log')
-      .select('*')
-      .order('created_at', { ascending: false });
-    allRoasts = data || [];
-    renderTable();
-  }
-
-  await ensurePersistence();
-})();
 </script>
 </body>
 </html>
