@@ -914,8 +914,8 @@ function updateAuthUI(isSignedIn, email = '') {
   newActive();
   wireActiveInputs();
 
-  // --- AUTH LISTENER ---
-  sb.auth.onAuthStateChange(async (event, session) => {
+  // Step 1: Subscribe to auth changes
+  sb.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       authStatus.textContent = "Signed in: " + (session.user.email || 'user');
       btnSignIn.style.display = 'none';
@@ -930,36 +930,37 @@ function updateAuthUI(isSignedIn, email = '') {
         .order('created_at', { ascending: false });
       allRoasts = data || [];
       renderTable();
-
-      // strip hash once we have a valid session
-      if (window.location.hash.includes('access_token')) {
-        history.replaceState({}, document.title, window.location.pathname);
-      }
     } else {
       authStatus.textContent = "Not signed in";
       btnSignIn.style.display = '';
       btnSignOut.style.display = 'none';
+      allRoasts = [];
       renderTable();
     }
   });
 
-  // --- GET SESSION (parses hash if detectSessionInUrl=true) ---
-  const { data: { session } } = await sb.auth.getSession();
+  // Step 2: Ask Supabase for any existing session (also processes magic link from hash automatically)
+  const { data: { session }, error } = await sb.auth.getSession();
+  if (error) console.error("Error getting session:", error);
 
-  // --- FALLBACK for when detectSessionInUrl misses it ---
-  if (!session && window.location.hash.includes('access_token')) {
-    const params = new URLSearchParams(window.location.hash.slice(1));
-    const access_token = params.get('access_token');
-    const refresh_token = params.get('refresh_token');
-    if (access_token && refresh_token) {
-      await sb.auth.setSession({ access_token, refresh_token });
-    }
+  // Step 3: Trigger UI state immediately if session exists
+  if (session?.user) {
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+    startOrdersRealtime();
+    loadOrders();
+
+    const { data } = await sb
+      .from('roasting_log')
+      .select('*')
+      .order('created_at', { ascending: false });
+    allRoasts = data || [];
+    renderTable();
   }
 
   await ensurePersistence();
-  document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
-
 </script>
 </body>
 </html>
