@@ -911,36 +911,55 @@ function updateAuthUI(isSignedIn, email = '') {
 }
 
 (async function init() {
-  // 1) Register auth listener first
+  newActive();
+  wireActiveInputs();
+
+  // --- AUTH LISTENER ---
   sb.auth.onAuthStateChange(async (event, session) => {
     if (session?.user) {
-      updateAuthUI(true, session.user.email);
-      await loadAllData();
+      authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+      btnSignIn.style.display = 'none';
+      btnSignOut.style.display = '';
 
-      // Safe to clear hash now
-      if (window.location.hash.includes("access_token")) {
+      startOrdersRealtime();
+      loadOrders();
+
+      const { data } = await sb
+        .from('roasting_log')
+        .select('*')
+        .order('created_at', { ascending: false });
+      allRoasts = data || [];
+      renderTable();
+
+      // strip hash once we have a valid session
+      if (window.location.hash.includes('access_token')) {
         history.replaceState({}, document.title, window.location.pathname);
       }
     } else {
-      updateAuthUI(false);
-      allRoasts = [];
+      authStatus.textContent = "Not signed in";
+      btnSignIn.style.display = '';
+      btnSignOut.style.display = 'none';
       renderTable();
     }
   });
 
-  // 2) Try to get session — this will parse the hash if detectSessionInUrl is true
+  // --- GET SESSION (parses hash if detectSessionInUrl=true) ---
   const { data: { session } } = await sb.auth.getSession();
 
-  // 3) Fallback: if still no session but hash contains tokens, set it manually
-  if (!session && window.location.hash.includes("access_token")) {
+  // --- FALLBACK for when detectSessionInUrl misses it ---
+  if (!session && window.location.hash.includes('access_token')) {
     const params = new URLSearchParams(window.location.hash.slice(1));
-    const access_token = params.get("access_token");
-    const refresh_token = params.get("refresh_token");
+    const access_token = params.get('access_token');
+    const refresh_token = params.get('refresh_token');
     if (access_token && refresh_token) {
       await sb.auth.setSession({ access_token, refresh_token });
     }
   }
+
+  await ensurePersistence();
+  document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
+
 </script>
 </body>
 </html>
