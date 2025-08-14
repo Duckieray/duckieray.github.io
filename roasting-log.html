@@ -254,8 +254,21 @@
 // ----- Supabase config -----
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
-let sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 const REDIRECT_URL = 'https://duckieray.github.io/roasting-log.html';
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: {
+    detectSessionInUrl: true,
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
+
+// tiny helper so your sign-in handler doesn't throw:
+function uiError(what, err) {
+  console.error(what, err);
+  alert(`${what} failed: ${err?.message || err}`);
+}
 
 // UI helpers
 const authStatus = document.getElementById('authStatus');
@@ -901,32 +914,50 @@ function updateAuthUI(isSignedIn, email = '') {
   newActive();
   wireActiveInputs();
 
-  // If magic link is in hash, strip it *first* after Supabase processes it
-  if (window.location.hash.includes('access_token')) {
-    history.replaceState({}, document.title, window.location.pathname);
-  }
+  // 1) Listen for auth changes FIRST
+  sb.auth.onAuthStateChange(async (event, session) => {
+    // console.log("Auth event:", event, session); // uncomment for debugging
 
-  // Listen for auth changes before trying to load anything
-  sb.auth.onAuthStateChange((_event, session) => {
     if (session?.user) {
-      setupAuthenticatedClient(session);
-      loadAllData();
       updateAuthUI(true, session.user.email);
+      await loadAllData();
+
+      // only now it is safe to clean the URL
+      if (window.location.hash.includes("access_token")) {
+        history.replaceState({}, document.title, window.location.pathname);
+      }
     } else {
+      updateAuthUI(false);
       stopOrdersRealtime();
       stopRoastingRealtime();
       allRoasts = [];
       renderTable();
-      updateAuthUI(false);
     }
   });
 
-  // Now check for existing session
-  const { data: { session } } = await sb.auth.getSession();
+  // 2) Try to get an existing session (this also triggers URL parsing in many cases)
+  let { data: { session }, error } = await sb.auth.getSession();
+
+  // 3) Safety net: if no session yet but magic-link tokens are present, set it manually
+  if (!session && window.location.hash.includes("access_token")) {
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const access_token = params.get("access_token");
+    const refresh_token = params.get("refresh_token");
+    if (access_token && refresh_token) {
+      const { data, error: setErr } = await sb.auth.setSession({ access_token, refresh_token });
+      if (setErr) uiError("Set session", setErr);
+      session = data?.session ?? null;
+    }
+  }
+
+  // 4) Initialize UI based on what we have right now
   if (session?.user) {
-    setupAuthenticatedClient(session);
-    await loadAllData();
     updateAuthUI(true, session.user.email);
+    await loadAllData();
+    // It’s now safe to tidy the URL
+    if (window.location.hash.includes("access_token")) {
+      history.replaceState({}, document.title, window.location.pathname);
+    }
   } else {
     updateAuthUI(false);
     renderTable();
@@ -935,6 +966,7 @@ function updateAuthUI(isSignedIn, email = '') {
   await ensurePersistence();
   document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
+
 </script>
 </body>
 </html>
