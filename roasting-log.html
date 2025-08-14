@@ -289,29 +289,14 @@ btnSignOut.addEventListener('click', async () => {
 
 supabase.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) {
-    // Create client now that we have a logged-in user
-    supabaseClient = window.supabase.createClient(
-      SUPABASE_URL,
-      SUPABASE_ANON,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`
-          }
-        }
-      }
-    );
-
-    // UI state
+    supabaseClient = supabase; // same instance
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
 
-    // Orders logic
     startOrdersRealtime();
     loadOrders();
 
-    // Roasting log realtime subscription
     supabaseClient
       .channel('roasting-log-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
@@ -321,13 +306,10 @@ supabase.auth.onAuthStateChange(async (event, session) => {
       })
       .subscribe();
 
-    // Initial roasting log load
     const { data } = await supabaseClient.from('roasting_log').select('*');
     allRoasts = data || [];
     renderTable();
-
   } else {
-    // Logged out
     supabaseClient = null;
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
@@ -480,27 +462,15 @@ ordersTabButton.addEventListener('click', () => {
   const { data: { session } } = await supabase.auth.getSession();
 
   if (session?.user) {
-    // Create the authenticated client
-    supabaseClient = window.supabase.createClient(
-      SUPABASE_URL,
-      SUPABASE_ANON,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`
-          }
-        }
-      }
-    );
-
+    supabaseClient = supabase; // same instance
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
 
-    // Now these run with the logged-in client
     startOrdersRealtime();
     loadOrders();
   } else {
+    supabaseClient = null;
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
     btnSignOut.style.display = 'none';
