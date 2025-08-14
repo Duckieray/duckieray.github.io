@@ -911,62 +911,36 @@ function updateAuthUI(isSignedIn, email = '') {
 }
 
 (async function init() {
-  newActive();
-  wireActiveInputs();
-
-  // 1) Listen for auth changes FIRST
+  // 1) Register auth listener first
   sb.auth.onAuthStateChange(async (event, session) => {
-    // console.log("Auth event:", event, session); // uncomment for debugging
-
     if (session?.user) {
       updateAuthUI(true, session.user.email);
       await loadAllData();
 
-      // only now it is safe to clean the URL
+      // Safe to clear hash now
       if (window.location.hash.includes("access_token")) {
         history.replaceState({}, document.title, window.location.pathname);
       }
     } else {
       updateAuthUI(false);
-      stopOrdersRealtime();
-      stopRoastingRealtime();
       allRoasts = [];
       renderTable();
     }
   });
 
-  // 2) Try to get an existing session (this also triggers URL parsing in many cases)
-  let { data: { session }, error } = await sb.auth.getSession();
+  // 2) Try to get session — this will parse the hash if detectSessionInUrl is true
+  const { data: { session } } = await sb.auth.getSession();
 
-  // 3) Safety net: if no session yet but magic-link tokens are present, set it manually
+  // 3) Fallback: if still no session but hash contains tokens, set it manually
   if (!session && window.location.hash.includes("access_token")) {
     const params = new URLSearchParams(window.location.hash.slice(1));
     const access_token = params.get("access_token");
     const refresh_token = params.get("refresh_token");
     if (access_token && refresh_token) {
-      const { data, error: setErr } = await sb.auth.setSession({ access_token, refresh_token });
-      if (setErr) uiError("Set session", setErr);
-      session = data?.session ?? null;
+      await sb.auth.setSession({ access_token, refresh_token });
     }
   }
-
-  // 4) Initialize UI based on what we have right now
-  if (session?.user) {
-    updateAuthUI(true, session.user.email);
-    await loadAllData();
-    // It’s now safe to tidy the URL
-    if (window.location.hash.includes("access_token")) {
-      history.replaceState({}, document.title, window.location.pathname);
-    }
-  } else {
-    updateAuthUI(false);
-    renderTable();
-  }
-
-  await ensurePersistence();
-  document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
-
 </script>
 </body>
 </html>
