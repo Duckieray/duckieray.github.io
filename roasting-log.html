@@ -251,74 +251,89 @@
 </div>
 
 <script>
-/* =================== Supabase setup =================== */
-const SUPABASE_URL  = "https://spdzolnriqpyoupnwdvq.supabase.co";
+// ----- Supabase config -----
+const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-/* =================== UI helpers =================== */
-const $  = s => document.querySelector(s);
-const $$ = s => [...document.querySelectorAll(s)];
-const authStatus     = $('#authStatus');
-const btnSignIn      = $('#btnSignIn');
-const btnSignOut     = $('#btnSignOut');
-const ordersTabButton= $('#orderQueueTab');
-const statusPill     = $('#status-pill');
-
-const fmtTime = d => d ? new Date(d).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '';
-const nowISO  = () => new Date().toISOString();
-const todayStr= () => new Date().toLocaleDateString();
+// UI helpers
+const authStatus = document.getElementById('authStatus');
+const btnSignIn  = document.getElementById('btnSignIn');
+const btnSignOut = document.getElementById('btnSignOut');
+const ordersTabButton = document.getElementById('orderQueueTab');
 
 function showTab(name){
-  $('#tab-active').style.display = name==='active' ? 'block' : 'none';
-  $('#tab-log').style.display    = name==='log'    ? 'block' : 'none';
-  $('#tab-orders').style.display = name==='orders' ? 'block' : 'none';
+  document.getElementById('tab-active').style.display = name==='active' ? 'block' : 'none';
+  document.getElementById('tab-log').style.display    = name==='log'    ? 'block' : 'none';
+  document.getElementById('tab-orders').style.display = name==='orders' ? 'block' : 'none';
 }
 
-function uiError(where, error){
-  const msg = (error?.message || error || '').toString();
-  console.error(where + ':', error);
-  statusPill.textContent = `${where} error: ${msg}`;
-  alert(`${where} error:\n${msg}`);
+// Sign-in with magic link (super simple for the user)
+btnSignIn.onclick = async () => {
+  const email = prompt("Enter your work email to sign in:");
+  if (!email) return;
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.href }
+  });
+  if (error) return alert("Sign-in failed: " + error.message);
+  alert("Check your email for a sign-in link. After you tap it, return to this page.");
+};
+
+btnSignOut.addEventListener('click', async () => {
+  const { error } = await sb.auth.signOut();
+  if (error) {
+    console.error('Error signing out:', error.message);
+    alert('Could not sign out.');
+  }
+});
+
+sb.auth.onAuthStateChange(async (_event, session) => {
+  if (session?.user) {
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+
+    startOrdersRealtime();  // uses sb inside
+    loadOrders();           // uses sb inside
+
+    sb
+      .channel('roasting-log-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
+        const { data } = await sb.from('roasting_log').select('*');
+        allRoasts = data || [];
+        renderTable();
+      })
+      .subscribe();
+
+    const { data } = await sb.from('roasting_log').select('*');
+    allRoasts = data || [];
+    renderTable();
+  } else {
+    // DO NOT set the client to null
+    authStatus.textContent = "Not signed in";
+    btnSignIn.style.display = '';
+    btnSignOut.style.display = 'none';
+
+    stopOrdersRealtime();
+    clearOrders();
+
+    allRoasts = [];
+    renderTable();
+  }
+});
+
+function itemsToText(items){
+  try {
+    const arr = Array.isArray(items) ? items : JSON.parse(items||"[]");
+    return arr.join(", "); // just join your string array
+  } catch {
+    return items || "";
+  }
 }
 
-/* =================== Realtime channels =================== */
-let ordersChannel = null;
-let roastingChannel = null;
-
-function startOrdersRealtime(){
-  if (ordersChannel) return;
-  ordersChannel = sb.channel('orders-realtime')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'order_queue' }, () => {
-      loadOrders();
-    })
-    .subscribe();
-}
-function stopOrdersRealtime(){
-  if (ordersChannel) sb.removeChannel(ordersChannel);
-  ordersChannel = null;
-}
-
-function startRoastingRealtime(){
-  if (roastingChannel) return;
-  roastingChannel = sb
-    .channel('roasting-log-realtime')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
-      const { data, error } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
-      if (error) return uiError('Load roasts (RT)', error);
-      allRoasts = data || [];
-      renderTable();
-    })
-    .subscribe();
-}
-function stopRoastingRealtime(){
-  if (roastingChannel) sb.removeChannel(roastingChannel);
-  roastingChannel = null;
-}
-
-/* =================== Orders =================== */
 function renderOrders(rows) {
-  const tb = $('#ordersTbody');
+  const tb = document.getElementById('ordersTbody');
   tb.innerHTML = '';
   rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
@@ -336,64 +351,158 @@ function renderOrders(rows) {
       <td><button class="btn small accent2" data-id="${r.id}">Start Roast</button></td>
     `;
 
-    tr.querySelector('button').onclick = () => {
-      const grams = (() => {
-        const v = (r.starting_weight_grams ?? '').toString();
-        const n = parseFloat(v.replace(/[^\d.]/g, ''));
-        return isNaN(n) ? '' : n;
-      })();
+  tr.querySelector('button').onclick = () => {
+    // coerce whatever is in starting_weight_grams into a number (handles "544.3 g" or 544.3)
+    const grams = (() => {
+      const v = (r.starting_weight_grams ?? '').toString();
+      const n = parseFloat(v.replace(/[^\d.]/g, ''));
+      return isNaN(n) ? '' : n;
+    })();
 
-      active.bean = r.product_name || '';
-      active.profile = r.profile || '';
-      active.startWeight = grams;
-      active.notes = `[Order ${r.order_number}] ${r.notes || ''}`;
-      active.orderId = r.id;
+    // Fill the active roast fields the UI actually binds to
+    active.bean = r.product_name || '';
+    active.profile = r.profile || '';
+    active.startWeight = grams;          // <-- key change (not "startingWeight")
+    active.notes = `[Order ${r.order_number}] ${r.notes || ''}`;
+    active.orderId = r.id;               // so we can complete it later
 
-      bindActiveToUI();
-      showTab('active');
+    bindActiveToUI();
+    showTab('active');
 
-      sb.from('order_queue').update({ status: 'roasting' }).eq('id', r.id)
-        .then(({ error }) => { if (error) uiError('Mark roasting', error); });
-    };
+    // Show the Complete button while this roast is tied to an order
+    const btnComplete = document.getElementById('btnComplete');
+    if (btnComplete) btnComplete.style.display = '';
+
+    // Mark order as roasting
+    sb.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
+  };
 
     tb.appendChild(tr);
   });
 }
 
+function finishRoast() {
+  saveRoastData(active); // your existing save logic
+
+  if (window.activeRoasts && window.activeRoasts.length > 0) {
+    const next = window.activeRoasts.shift();
+    active.bean = next.bean;
+    active.profile = next.profile;
+    active.startingWeight = next.startingWeight;
+    active.notes = next.notes;
+    bindActiveToUI();
+    showTab('active');
+  } else {
+    showTab('orders'); // back to queue if done
+  }
+}
+
+async function completeRoast(orderId) {
+  const { error } = await sb
+    .from('order_queue')
+    .update({ status: 'completed' })
+    .eq('id', orderId);
+
+  if (error) {
+    console.error('Error completing roast:', error);
+    alert('Could not complete roast.');
+  } else {
+    // Refresh the roasting queue after completion
+    loadOrders();
+  }
+}
+
+// Load existing orders once
 async function loadOrders(){
   const { data, error } = await sb
     .from('order_queue')
     .select(`
-      id, created_at, order_number,
-      billing_first_name, billing_last_name,
-      product_name, profile, starting_weight_grams, status
+      id,
+      created_at,
+      order_number,
+      billing_first_name,
+      billing_last_name,
+      product_name,
+      profile,
+      starting_weight_grams,
+      status
     `)
-    .neq('status', 'completed')
+    .neq('status', 'completed') // hide completed roasts
     .order('created_at', { ascending: false });
-
-  if (error) return uiError('Load orders', error);
-  renderOrders(data || []);
+  if (error) { console.warn(error); return; }
+  renderOrders(data||[]);
 }
 
-/* =================== Roasting log storage =================== */
-let storageMode = 'supabase';
+function clearOrders(){ document.getElementById('ordersTbody').innerHTML=''; }
+
+// Realtime subscription
+let ordersChannel = null;
+function startOrdersRealtime(){
+  if (ordersChannel) return;
+  ordersChannel = sb.channel('orders-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'order_queue' }, payload => {
+      loadOrders();
+    })
+    .subscribe();
+}
+function stopOrdersRealtime(){
+  if (ordersChannel) sb.removeChannel(ordersChannel);
+  ordersChannel = null;
+}
+
+// Wire the new tab button (and keep your existing tab logic)
+ordersTabButton.addEventListener('click', () => {
+  $$('.tab').forEach(x=>x.classList.remove('active'));
+  ordersTabButton.classList.add('active');
+  showTab('orders');
+});
+
+// ------- Robust storage: Supabase table -------
 const db = {
   async all() {
-    const { data, error } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
-    if (error) { uiError('Load roasts', error); return []; }
+    const { data, error } = await sb
+      .from('roasting_log')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) { console.error(error); return []; }
     return data;
   },
   async put(roast) {
-    const { error } = await sb.from('roasting_log').upsert(roast, { onConflict: 'id' });
-    if (error) uiError('Save roast', error);
+    const { error } = await sb
+      .from('roasting_log')
+      .upsert(roast, { onConflict: 'id' });
+    if (error) console.error('Error saving roast:', error);
   },
   async delete(id) {
-    const { error } = await sb.from('roasting_log').delete().eq('id', id);
-    if (error) uiError('Delete roast', error);
+    const { error } = await sb
+      .from('roasting_log')
+      .delete()
+      .eq('id', id);
+    if (error) console.error(error);
   }
 };
 
-/* =================== Active roast state =================== */
+// ------- Optional: show persistence status -------
+let storageMode = 'supabase';
+async function ensurePersistence(){
+  const pill = document.getElementById('status-pill');
+  if (navigator.storage && navigator.storage.persist) {
+    try {
+      if (!(await navigator.storage.persisted())) await navigator.storage.persist();
+      pill.textContent = `Storage: ${storageMode} (persisted)`;
+      return;
+    } catch {}
+  }
+  pill.textContent = `Storage: ${storageMode}`;
+}
+
+/* ---------- state & utils ---------- */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const fmtTime = d => d ? new Date(d).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '';
+const nowISO = () => new Date().toISOString();
+const todayStr = () => new Date().toLocaleDateString();
+
 let active = {};
 let allRoasts = [];
 
@@ -409,6 +518,7 @@ function newActive(){
     orderId: null
   };
   bindActiveToUI();
+  document.getElementById('btnComplete')?.style && (document.getElementById('btnComplete').style.display = 'none'); // hide it
   $('#status-pill').textContent = 'Ready';
   $('#deltaHint').textContent = '';
 }
@@ -433,15 +543,15 @@ function bindActiveToUI(){
 
 function wireActiveInputs(){
   $('#roasterName').oninput = e => active.roaster = e.target.value;
-  $('#beanName').oninput   = e => active.bean    = e.target.value;
-  $('#profile').oninput    = e => active.profile = e.target.value;
-  $('#notes').oninput      = e => active.notes   = e.target.value;
-  $('#startWeight').oninput= e => { active.startWeight = e.target.value; updateDeltaHint(); };
+  $('#beanName').oninput = e => active.bean = e.target.value;
+  $('#profile').oninput = e => active.profile = e.target.value;
+  $('#notes').oninput = e => active.notes = e.target.value;
+  $('#startWeight').oninput = e => { active.startWeight = e.target.value; updateDeltaHint(); };
   $('#chargeTemp').oninput = e => active.chargeTemp = e.target.value;
-  $('#firstCrackTemp').oninput  = e => active.firstCrackTemp  = e.target.value;
+  $('#firstCrackTemp').oninput = e => active.firstCrackTemp = e.target.value;
   $('#secondCrackTemp').oninput = e => active.secondCrackTemp = e.target.value;
-  $('#endWeight').oninput  = e => { active.endWeight = e.target.value; updateDeltaHint(); };
-  $('#endTemp').oninput    = e => active.endTemp = e.target.value;
+  $('#endWeight').oninput = e => { active.endWeight = e.target.value; updateDeltaHint(); };
+  $('#endTemp').oninput = e => active.endTemp = e.target.value;
 }
 
 function updateDeltaHint(){
@@ -455,43 +565,90 @@ function updateDeltaHint(){
   }
 }
 
-/* =================== Buttons =================== */
-$('#btnStart').onclick = () => { active.startTime = nowISO(); $('#startTime').value = fmtTime(active.startTime); statusPill.textContent = 'Roast started'; };
-$('#btnFC').onclick    = () => { active.firstCrackTime = nowISO(); $('#firstCrackTime').value = fmtTime(active.firstCrackTime); statusPill.textContent = '1st crack logged'; };
-$('#btnSC').onclick    = () => { active.secondCrackTime = nowISO(); $('#secondCrackTime').value = fmtTime(active.secondCrackTime); statusPill.textContent = '2nd crack logged'; };
-$('#btnEnd').onclick   = () => { active.endTime = nowISO(); $('#endTime').value = fmtTime(active.endTime); statusPill.textContent = 'Finished'; };
+/* ---------- buttons ---------- */
+$('#btnStart').onclick = () => {
+  active.startTime = nowISO();
+  $('#startTime').value = fmtTime(active.startTime);
+  $('#status-pill').textContent = 'Roast started';
+};
+$('#btnFC').onclick = () => {
+  active.firstCrackTime = nowISO();
+  $('#firstCrackTime').value = fmtTime(active.firstCrackTime);
+  $('#status-pill').textContent = '1st crack logged';
+};
+$('#btnSC').onclick = () => {
+  active.secondCrackTime = nowISO();
+  $('#secondCrackTime').value = fmtTime(active.secondCrackTime);
+  $('#status-pill').textContent = '2nd crack logged';
+};
+$('#btnEnd').onclick = () => {
+  active.endTime = nowISO();
+  $('#endTime').value = fmtTime(active.endTime);
+  $('#status-pill').textContent = 'Finished';
+};
 $('#btnReset').onclick = () => newActive();
 
 $('#btnSave').onclick = async () => {
-  if (!active.startTime) return alert('Tap Start to begin the roast.');
+  if (!active.startTime) { 
+    alert('Tap Start to begin the roast.'); 
+    return; 
+  }
   try {
+    // 1. Save roast locally
     await db.put(active);
     allRoasts = await db.all();
     renderTable();
 
+    // 2. Mark linked order as completed in Supabase (if applicable)
     if (active.orderId) {
-      const { error } = await sb.from('order_queue').update({ status: 'completed' }).eq('id', active.orderId);
-      if (error) uiError('Complete order', error);
+      const { error } = await sb
+        .from('order_queue')
+        .update({ status: 'completed' })
+        .eq('id', active.orderId);
+
+      if (error) {
+        console.error('Error completing order in Supabase:', error);
+      } else {
+        console.log(`Order ${active.orderId} marked as completed`);
+      }
     }
 
-    statusPill.textContent = `Saved ${active.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+    // 3. Update UI status pill
+    const pill = document.getElementById('status-pill');
+    pill.textContent = `Saved ${active.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+
+    // 4. Reset active roast
     newActive();
-    loadOrders();
+
+    // 5. Optional: refresh orders list immediately
+    if (typeof loadOrders === 'function') {
+      loadOrders();
+    }
+    
   } catch (err) {
-    uiError('Save', err);
+    alert(
+      'Save failed.\n\nTip: avoid Private/Incognito and open via http(s) instead of file://\n\nDetails: ' +
+      (err?.message || err)
+    );
   }
 };
 
-/* =================== Log table =================== */
+/* ---------- table rendering & editing ---------- */
 function tdEditable(roast, key, placeholder=''){
   const val = roast[key] ?? '';
-  const show = (k, v) => (k.toLowerCase().includes('time') ? fmtTime(v) : (v ?? ''));
+  const show = (k, v) => {
+    if(k.toLowerCase().includes('time')) return fmtTime(v);
+    return v ?? '';
+  };
   return `<td contenteditable="true" data-id="${roast.id}" data-key="${key}" placeholder="${placeholder}">${show(key,val)}</td>`;
 }
+
 function computeLossPct(r){
   const s = parseFloat(r.startWeight||''); const e = parseFloat(r.endWeight||'');
-  return (!isNaN(s) && !isNaN(e) && s>0) ? (((s-e)/s)*100).toFixed(1) : '';
+  if(!isNaN(s) && !isNaN(e) && s>0) return (((s-e)/s)*100).toFixed(1);
+  return '';
 }
+
 function renderTable(){
   const tbody = $('#logTbody');
   tbody.innerHTML = '';
@@ -515,31 +672,36 @@ function renderTable(){
       ${tdEditable(r,'notes','tap to edit')}
       <td><button class="btn small danger del" data-id="${r.id}">Delete</button></td>
     `;
+    // Click row to open detail
     tr.addEventListener('click', (e)=>{
-      const isDelete = e.target?.classList?.contains('del');
-      const isEditable = e.target?.getAttribute?.('contenteditable') === 'true';
-      if (isDelete || isEditable) return;
+      const isDelete = e.target && e.target.classList && e.target.classList.contains('del');
+      const isEditable = e.target && e.target.getAttribute && e.target.getAttribute('contenteditable') === 'true';
+      if (isDelete || isEditable) return; // don't open when deleting or editing inline cell
       openDetail(r.id);
     });
     tbody.appendChild(tr);
   }
 
+  // inline edit handler
   tbody.querySelectorAll('td[contenteditable="true"]').forEach(td=>{
-    td.addEventListener('blur', async ()=>{
+    td.addEventListener('blur', async (e)=>{
       const id = td.getAttribute('data-id');
       const key = td.getAttribute('data-key');
       const roast = allRoasts.find(x=>x.id===id);
+      // if user edited a time field cell visually, ignore because times are not contenteditable
       let val = td.textContent.trim();
+      // numeric normalization
       if(['startWeight','endWeight','chargeTemp','firstCrackTemp','secondCrackTemp','endTemp'].includes(key)){
         val = val.replace(/[^\d.]/g,'');
       }
       roast[key] = val;
       await db.put(roast);
       allRoasts = await db.all();
-      renderTable();
+      renderTable(); // re-render to refresh loss%
     }, {passive:true});
   });
 
+  // delete buttons
   tbody.querySelectorAll('.del').forEach(btn=>{
     btn.onclick = async () => {
       const id = btn.getAttribute('data-id');
@@ -552,16 +714,19 @@ function renderTable(){
   });
 }
 
-/* =================== Detail modal (unchanged logic) =================== */
+// ----- Detail view state & helpers -----
 let selectedRoast = null;
 const M = (id) => document.getElementById(id);
 const setIf = (id, v) => { const el=M(id); if (el) el.value = v ?? ''; };
 const getVal = (id) => (M(id)?.value ?? '').trim();
 
 function isoFromFlexible(input){
+  // Accept ISO as-is; accept "HH:MM[:SS]" today; accept locale time
   const v = (input||'').trim();
   if (!v) return '';
+  // ISO pass-through
   if (!isNaN(Date.parse(v))) return new Date(v).toISOString();
+  // HH:MM or HH:MM:SS today
   const hhmm = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
   const m = v.match(hhmm);
   if (m){
@@ -569,6 +734,7 @@ function isoFromFlexible(input){
     d.setHours(parseInt(m[1],10), parseInt(m[2],10), parseInt(m[3]||'0',10), 0);
     return d.toISOString();
   }
+  // Fallback: try Date parse
   const d = new Date(v);
   return isNaN(d) ? '' : d.toISOString();
 }
@@ -576,6 +742,8 @@ function isoFromFlexible(input){
 function openDetail(roastId){
   selectedRoast = allRoasts.find(r => r.id === roastId);
   if (!selectedRoast) return;
+
+  // Populate fields
   M('detailId').textContent = selectedRoast.id;
   M('detailStorage').textContent = `Storage: ${storageMode}`;
   setIf('d_date', selectedRoast.date || new Date().toLocaleDateString());
@@ -584,6 +752,7 @@ function openDetail(roastId){
   setIf('d_profile', selectedRoast.profile);
   setIf('d_startWeight', selectedRoast.startWeight);
   setIf('d_chargeTemp', selectedRoast.chargeTemp);
+
   setIf('d_startTime', selectedRoast.startTime);
   setIf('d_firstCrackTime', selectedRoast.firstCrackTime);
   setIf('d_firstCrackTemp', selectedRoast.firstCrackTemp);
@@ -593,6 +762,7 @@ function openDetail(roastId){
   setIf('d_endWeight', selectedRoast.endWeight);
   setIf('d_endTemp', selectedRoast.endTemp);
   setIf('d_notes', selectedRoast.notes);
+
   M('detailModal').style.display = 'flex';
 }
 
@@ -604,6 +774,7 @@ async function saveDetail(){
   selectedRoast.profile = getVal('d_profile');
   selectedRoast.startWeight = getVal('d_startWeight');
   selectedRoast.chargeTemp = getVal('d_chargeTemp');
+
   selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || '';
   selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || '';
   selectedRoast.firstCrackTemp = getVal('d_firstCrackTemp');
@@ -617,10 +788,15 @@ async function saveDetail(){
   await db.put(selectedRoast);
   allRoasts = await db.all();
   renderTable();
-  statusPill.textContent = `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+  M('status-pill').textContent = `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
 }
-function closeDetail(){ M('detailModal').style.display = 'none'; selectedRoast = null; }
 
+function closeDetail(){
+  M('detailModal').style.display = 'none';
+  selectedRoast = null;
+}
+
+// Wire modal buttons
 M('detailClose').onclick = closeDetail;
 M('detailSave').onclick = async () => { await saveDetail(); closeDetail(); };
 M('detailDelete').onclick = async () => {
@@ -640,118 +816,102 @@ M('detailDuplicate').onclick = async () => {
   await db.put(copy);
   allRoasts = await db.all();
   renderTable();
-  statusPill.textContent = `Duplicated ${selectedRoast.id} → ${copy.id} • Records: ${allRoasts.length}`;
+  M('status-pill').textContent = `Duplicated ${selectedRoast.id} → ${copy.id} • Records: ${allRoasts.length}`;
 };
+
+// Quick “set to now” helpers
 M('d_setStartNow').onclick = () => { M('d_startTime').value = nowISO(); };
-M('d_setFCNow').onclick   = () => { M('d_firstCrackTime').value = nowISO(); };
-M('d_setSCNow').onclick   = () => { M('d_secondCrackTime').value = nowISO(); };
-M('d_setEndNow').onclick  = () => { M('d_endTime').value = nowISO(); };
+M('d_setFCNow').onclick = () => { M('d_firstCrackTime').value = nowISO(); };
+M('d_setSCNow').onclick = () => { M('d_secondCrackTime').value = nowISO(); };
+M('d_setEndNow').onclick = () => { M('d_endTime').value = nowISO(); };
 
-/* =================== CSV, tabs (unchanged) =================== */
-// … keep your CSV code exactly as-is …
+/* ---------- CSV import/export ---------- */
+function toCSV(rows){
+  const headers = ["id","date","roaster","bean","profile","notes","startWeight","chargeTemp","startTime","firstCrackTime","firstCrackTemp","secondCrackTime","secondCrackTemp","endTime","endWeight","endTemp"];
+  const esc = v => `"${(v??'').toString().replace(/"/g,'""')}"`;
+  const lines = [headers.join(",")];
+  for(const r of rows){
+    lines.push(headers.map(h=>esc(r[h]||'')).join(","));
+  }
+  return lines.join("\n");
+}
+function download(filename, text){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:'text/csv'}));
+  a.download = filename;
+  a.click();
+}
+$('#exportCsv').onclick = async ()=>{
+  const rows = await db.all();
+  download(`roasts_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
+};
+$('#importCsv').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const text = await file.text();
+  const [header, ...lines] = text.split(/\r?\n/).filter(Boolean);
+  const cols = header.split(',');
+  const rows = lines.map(line=>{
+    const cells = [];
+    let cur='', inQ=false;
+    for(let i=0;i<line.length;i++){
+      const c=line[i];
+      if(c==='"' && line[i+1]==='"'){ cur+='"'; i++; continue; }
+      if(c==='"'){ inQ=!inQ; continue; }
+      if(c===',' && !inQ){ cells.push(cur); cur=''; continue; }
+      cur+=c;
+    }
+    cells.push(cur);
+    const obj={};
+    cols.forEach((col,i)=> obj[col.replace(/(^"|"$)/g,'')] = (cells[i]??'').replace(/(^"|"$)/g,'') );
+    // Keep ISO times if provided
+    return obj;
+  });
+  for(const r of rows){ if(r.id) await db.put(r); }
+  allRoasts = await db.all();
+  renderTable();
+  $('#status-pill').textContent = `Imported ${rows.length} rows`;
+});
 
+/* ---------- tabs ---------- */
 $$('.tab').forEach(t=>{
   t.addEventListener('click', ()=>{
     const name = t.getAttribute('data-tab');
     if(!name) return;
     $$('.tab').forEach(x=>x.classList.toggle('active', x===t));
     $('#tab-active').style.display = name==='active'?'block':'none';
-    $('#tab-log').style.display    = name==='log'?'block':'none';
+    $('#tab-log').style.display = name==='log'?'block':'none';
   });
 });
-ordersTabButton.addEventListener('click', () => {
-  $$('.tab').forEach(x=>x.classList.remove('active'));
-  ordersTabButton.classList.add('active');
-  showTab('orders');
-});
 
-/* =================== Auth wiring =================== */
-btnSignIn.onclick = async () => {
-  const email = prompt("Enter your work email to sign in:");
-  if (!email) return;
-  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
-  if (error) return uiError('Sign-in', error);
-  alert("Check your email for a sign-in link. After you tap it, return to this page.");
-};
-
-btnSignOut.addEventListener('click', async () => {
-  const { error } = await sb.auth.signOut();
-  if (error) return uiError('Sign-out', error);
-  // hard reset the UI to avoid any lingering realtime handlers
-  stopOrdersRealtime();
-  stopRoastingRealtime();
-  location.reload();
-});
-
-sb.auth.onAuthStateChange(async (_event, session) => {
-  if (session?.user) {
-    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
-    btnSignIn.style.display = 'none';
-    btnSignOut.style.display = '';
-    startOrdersRealtime();
-    startRoastingRealtime();
-    await loadOrders();
-    const { data, error } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
-    if (error) uiError('Load roasts', error);
-    allRoasts = data || [];
-    renderTable();
-  } else {
-    authStatus.textContent = "Not signed in";
-    btnSignIn.style.display = '';
-    btnSignOut.style.display = 'none';
-    stopOrdersRealtime();
-    stopRoastingRealtime();
-    clearOrders();
-    allRoasts = [];
-    renderTable();
-  }
-});
-
-/* =================== Misc =================== */
-function clearOrders(){ $('#ordersTbody').innerHTML=''; }
-
-async function ensurePersistence(){
-  if (navigator.storage && navigator.storage.persist) {
-    try {
-      if (!(await navigator.storage.persisted())) await navigator.storage.persist();
-      statusPill.textContent = `Storage: supabase (persisted)`;
-      return;
-    } catch {}
-  }
-  statusPill.textContent = `Storage: supabase`;
-}
-
-/* =================== Single boot =================== */
+/* ---------- boot ---------- */
 (async function init(){
   newActive();
   wireActiveInputs();
 
   const { data: { session } } = await sb.auth.getSession();
+
   if (session?.user) {
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
+
     startOrdersRealtime();
-    startRoastingRealtime();
-    await loadOrders();
-    const { data, error } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
-    if (error) uiError('Load roasts', error);
+    loadOrders();
+
+    const { data } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
     allRoasts = data || [];
     renderTable();
   } else {
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
     btnSignOut.style.display = 'none';
-    renderTable();
+    renderTable(); // draw empty table gracefully
   }
 
   await ensurePersistence();
-  statusPill.textContent += ` • Records: ${allRoasts.length}`;
+  document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
-
-/* Optional: catch any stray JS errors to the pill */
-window.addEventListener('error', (e) => uiError('Runtime', e.error || e.message));
 </script>
-
 </body>
 </html>
