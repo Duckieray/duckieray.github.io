@@ -464,30 +464,17 @@ $('#btnReset').onclick = () => newActive();
 
 $('#btnSave').onclick = async () => {
   if (!active.startTime) return alert('Tap Start to begin the roast.');
-
-  const roastToSave = {
-    ...active,
-    startTime: active.startTime || null,
-    firstCrackTime: active.firstCrackTime || null,
-    secondCrackTime: active.secondCrackTime || null,
-    endTime: active.endTime || null,
-    orderId: active.orderId || null  // avoid invalid UUID error
-  };
-
   try {
-    await db.put(roastToSave); // ✅ use cleaned object
+    await db.put(active);
     allRoasts = await db.all();
     renderTable();
 
-    if (roastToSave.orderId) {
-      const { error } = await sb
-        .from('order_queue')
-        .update({ status: 'completed' })
-        .eq('id', roastToSave.orderId);
+    if (active.orderId) {
+      const { error } = await sb.from('order_queue').update({ status: 'completed' }).eq('id', active.orderId);
       if (error) uiError('Complete order', error);
     }
 
-    statusPill.textContent = `Saved ${roastToSave.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+    statusPill.textContent = `Saved ${active.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
     newActive();
     loadOrders();
   } catch (err) {
