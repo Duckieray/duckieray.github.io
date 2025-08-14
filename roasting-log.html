@@ -849,6 +849,35 @@ $$('.tab').forEach(t=>{
   });
 });
 
+
+/* --------- load data ------- */
+let roastingChannel = null;
+
+async function loadAllData() {
+  // Load current roasts
+  allRoasts = await db.all();
+  renderTable();
+
+  // Load orders
+  loadOrders();
+  startOrdersRealtime();
+
+  // Set up realtime for roasting log
+  if (roastingChannel) {
+    roastingChannel.unsubscribe();
+    roastingChannel = null;
+  }
+
+  roastingChannel = sb
+    .channel('roasting-log-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
+      console.log('🔄 Roasting log updated');
+      allRoasts = await db.all();
+      renderTable();
+    })
+    .subscribe();
+}
+
 /* ---------- boot ---------- */
 function setupAuthenticatedClient(session) {
   sb = window.supabase.createClient(
@@ -862,12 +891,27 @@ function setupAuthenticatedClient(session) {
   newActive();
   wireActiveInputs();
 
-  // Process magic link hash first
-  const { data: { session } } = await sb.auth.getSession();
+  // If magic link is in hash, strip it *first* after Supabase processes it
   if (window.location.hash.includes('access_token')) {
     history.replaceState({}, document.title, window.location.pathname);
   }
 
+  // Listen for auth changes before trying to load anything
+  sb.auth.onAuthStateChange((_event, session) => {
+    if (session?.user) {
+      setupAuthenticatedClient(session);
+      loadAllData();
+      updateAuthUI(true, session.user.email);
+    } else {
+      stopOrdersRealtime();
+      allRoasts = [];
+      renderTable();
+      updateAuthUI(false);
+    }
+  });
+
+  // Now check for existing session
+  const { data: { session } } = await sb.auth.getSession();
   if (session?.user) {
     setupAuthenticatedClient(session);
     await loadAllData();
@@ -877,56 +921,9 @@ function setupAuthenticatedClient(session) {
     renderTable();
   }
 
-  function updateAuthUI(isSignedIn, email = '') {
-    authStatus.textContent = isSignedIn ? `Signed in: ${email}` : 'Not signed in';
-    btnSignIn.style.display = isSignedIn ? 'none' : '';
-    btnSignOut.style.display = isSignedIn ? '' : 'none';
-  }
-
-  let roastingChannel = null;
-
-  async function loadAllData() {
-    // Load current roasts
-    allRoasts = await db.all();
-    renderTable();
-
-    // Load orders
-    loadOrders();
-    startOrdersRealtime();
-
-    // Set up realtime for roasting log
-    if (roastingChannel) {
-      roastingChannel.unsubscribe();
-      roastingChannel = null;
-    }
-
-    roastingChannel = sb
-      .channel('roasting-log-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
-        console.log('🔄 Roasting log updated');
-        allRoasts = await db.all();
-        renderTable();
-      })
-      .subscribe();
-  }
-
-  // Listen for future auth changes
-  sb.auth.onAuthStateChange((_event, session) => {
-    if (session?.user) {
-      setupAuthenticatedClient(session);
-      loadAllData();
-      updateAuthUI(true, session.user.email);
-    } else {
-      allRoasts = [];
-      renderTable();
-      updateAuthUI(false);
-    }
-  });
-
   await ensurePersistence();
   document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
-
 </script>
 </body>
 </html>
