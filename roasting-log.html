@@ -254,7 +254,7 @@
 // ----- Supabase config -----
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 const REDIRECT_URL = 'https://duckieray.github.io/roasting-log.html';
 
 // UI helpers
@@ -286,46 +286,6 @@ btnSignOut.addEventListener('click', async () => {
   if (error) {
     console.error('Error signing out:', error.message);
     alert('Could not sign out.');
-  }
-});
-
-sb.auth.onAuthStateChange(async (_event, session) => {
-  if (session?.user) {
-    // Once logged in, strip any leftover hash so reloads don’t break auth
-    if (window.location.hash && /access_token=/.test(window.location.hash)) {
-      history.replaceState({}, document.title, window.location.pathname);
-    }
-
-    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
-    btnSignIn.style.display = 'none';
-    btnSignOut.style.display = '';
-
-    startOrdersRealtime();  // uses sb inside
-    loadOrders();           // uses sb inside
-
-    sb
-      .channel('roasting-log-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
-        const { data } = await sb.from('roasting_log').select('*');
-        allRoasts = data || [];
-        renderTable();
-      })
-      .subscribe();
-
-    const { data } = await sb.from('roasting_log').select('*');
-    allRoasts = data || [];
-    renderTable();
-  } else {
-    // DO NOT set the client to null
-    authStatus.textContent = "Not signed in";
-    btnSignIn.style.display = '';
-    btnSignOut.style.display = 'none';
-
-    stopOrdersRealtime();
-    clearOrders();
-
-    allRoasts = [];
-    renderTable();
   }
 });
 
@@ -890,63 +850,24 @@ $$('.tab').forEach(t=>{
 });
 
 /* ---------- boot ---------- */
-let supabaseClient = null;
+function setupAuthenticatedClient(session) {
+  sb = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON,
+    { global: { headers: { Authorization: `Bearer ${session.access_token}` } } }
+  );
+}
 
 (async function init() {
   newActive();
   wireActiveInputs();
 
-  // Always process magic link hash before we do anything
+  // Process magic link hash first
   const { data: { session } } = await sb.auth.getSession();
-  if (window.location.hash && /access_token=/.test(window.location.hash)) {
+  if (window.location.hash.includes('access_token')) {
     history.replaceState({}, document.title, window.location.pathname);
   }
 
-  function setupAuthenticatedClient(session) {
-    sb = window.supabase.createClient(
-      SUPABASE_URL,
-      SUPABASE_ANON_KEY,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`
-          }
-        }
-      }
-    );
-  }
-
-  async function loadAllData() {
-    startOrdersRealtime();
-    await loadOrders();
-
-    const { data } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
-    allRoasts = data || [];
-    renderTable();
-
-    sb
-      .channel('roasting-log-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
-        const { data } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
-        allRoasts = data || [];
-        renderTable();
-      })
-      .subscribe();
-  }
-
-  function updateAuthUI(signedIn, email) {
-    if (signedIn) {
-      authStatus.textContent = `Signed in: ${email || 'user'}`;
-      btnSignIn.style.display = 'none';
-      btnSignOut.style.display = '';
-    } else {
-      authStatus.textContent = "Not signed in";
-      btnSignIn.style.display = '';
-      btnSignOut.style.display = 'none';
-    }
-  }
-
-  // On page load
   if (session?.user) {
     setupAuthenticatedClient(session);
     await loadAllData();
@@ -956,7 +877,40 @@ let supabaseClient = null;
     renderTable();
   }
 
-  // Listen for future logins/logouts
+  function updateAuthUI(isSignedIn, email = '') {
+    authStatus.textContent = isSignedIn ? `Signed in: ${email}` : 'Not signed in';
+    btnSignIn.style.display = isSignedIn ? 'none' : '';
+    btnSignOut.style.display = isSignedIn ? '' : 'none';
+  }
+
+  let roastingChannel = null;
+
+  async function loadAllData() {
+    // Load current roasts
+    allRoasts = await db.all();
+    renderTable();
+
+    // Load orders
+    loadOrders();
+    startOrdersRealtime();
+
+    // Set up realtime for roasting log
+    if (roastingChannel) {
+      roastingChannel.unsubscribe();
+      roastingChannel = null;
+    }
+
+    roastingChannel = sb
+      .channel('roasting-log-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
+        console.log('🔄 Roasting log updated');
+        allRoasts = await db.all();
+        renderTable();
+      })
+      .subscribe();
+  }
+
+  // Listen for future auth changes
   sb.auth.onAuthStateChange((_event, session) => {
     if (session?.user) {
       setupAuthenticatedClient(session);
@@ -972,6 +926,7 @@ let supabaseClient = null;
   await ensurePersistence();
   document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
+
 </script>
 </body>
 </html>
