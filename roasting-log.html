@@ -276,12 +276,14 @@ btnSignIn.onclick = async () => {
   alert("Check your email for a sign-in link. After you tap it, return to this page.");
 };
 
-btnSignOut.onclick = async () => {
-  await supabase.auth.signOut();
-  authStatus.textContent = "Signed out";
-  btnSignIn.style.display = '';
-  btnSignOut.style.display = 'none';
-};
+btnSignOut.addEventListener('click', async () => {
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    console.error('Error signing out:', error.message);
+    return;
+  }
+  window.location.reload();
+});
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 let supabaseClient = null;
@@ -463,7 +465,7 @@ function startOrdersRealtime(){
     .subscribe();
 }
 function stopOrdersRealtime(){
-  if (ordersChannel) supabase.removeChannel(ordersChannel);
+  if (ordersChannel) supabaseClient.removeChannel(ordersChannel);
   ordersChannel = null;
 }
 
@@ -477,12 +479,32 @@ ordersTabButton.addEventListener('click', () => {
 // On boot, check session
 (async () => {
   const { data: { session } } = await supabase.auth.getSession();
+
   if (session?.user) {
+    // Create the authenticated client
+    supabaseClient = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY,
+      {
+        global: {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`
+          }
+        }
+      }
+    );
+
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
+
+    // Now these run with the logged-in client
     startOrdersRealtime();
     loadOrders();
+  } else {
+    authStatus.textContent = "Not signed in";
+    btnSignIn.style.display = '';
+    btnSignOut.style.display = 'none';
   }
 })();
 
