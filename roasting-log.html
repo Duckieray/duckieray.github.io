@@ -890,40 +890,88 @@ $$('.tab').forEach(t=>{
 });
 
 /* ---------- boot ---------- */
-(async function init(){
+let supabaseClient = null;
+
+(async function init() {
   newActive();
   wireActiveInputs();
 
-  // Step 1: Get the session first (this processes magic link hash)
-  const { data: { session }, error } = await sb.auth.getSession();
-
-  // Step 2: Now it's safe to strip the hash
+  // Always process magic link hash before we do anything
+  const { data: { session } } = await sb.auth.getSession();
   if (window.location.hash && /access_token=/.test(window.location.hash)) {
     history.replaceState({}, document.title, window.location.pathname);
   }
 
-  if (session?.user) {
-    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
-    btnSignIn.style.display = 'none';
-    btnSignOut.style.display = '';
+  function setupAuthenticatedClient(session) {
+    sb = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY,
+      {
+        global: {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`
+          }
+        }
+      }
+    );
+  }
 
+  async function loadAllData() {
     startOrdersRealtime();
-    loadOrders();
+    await loadOrders();
 
     const { data } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
     allRoasts = data || [];
     renderTable();
+
+    sb
+      .channel('roasting-log-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
+        const { data } = await sb.from('roasting_log').select('*').order('created_at', { ascending: false });
+        allRoasts = data || [];
+        renderTable();
+      })
+      .subscribe();
+  }
+
+  function updateAuthUI(signedIn, email) {
+    if (signedIn) {
+      authStatus.textContent = `Signed in: ${email || 'user'}`;
+      btnSignIn.style.display = 'none';
+      btnSignOut.style.display = '';
+    } else {
+      authStatus.textContent = "Not signed in";
+      btnSignIn.style.display = '';
+      btnSignOut.style.display = 'none';
+    }
+  }
+
+  // On page load
+  if (session?.user) {
+    setupAuthenticatedClient(session);
+    await loadAllData();
+    updateAuthUI(true, session.user.email);
   } else {
-    authStatus.textContent = "Not signed in";
-    btnSignIn.style.display = '';
-    btnSignOut.style.display = 'none';
+    updateAuthUI(false);
     renderTable();
   }
+
+  // Listen for future logins/logouts
+  sb.auth.onAuthStateChange((_event, session) => {
+    if (session?.user) {
+      setupAuthenticatedClient(session);
+      loadAllData();
+      updateAuthUI(true, session.user.email);
+    } else {
+      allRoasts = [];
+      renderTable();
+      updateAuthUI(false);
+    }
+  });
 
   await ensurePersistence();
   document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
-
 </script>
 </body>
 </html>
