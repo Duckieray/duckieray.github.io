@@ -282,11 +282,9 @@ btnSignIn.onclick = async () => {
 };
 
 btnSignOut.addEventListener('click', async () => {
-  const { error } = await sb.auth.signOut();
-  if (error) {
-    console.error('Error signing out:', error.message);
-    alert('Could not sign out.');
-  }
+  await sb.auth.signOut();
+  allRoasts = [];
+  renderTable();
 });
 
 function itemsToText(items){
@@ -411,9 +409,15 @@ function startOrdersRealtime(){
     })
     .subscribe();
 }
+
 function stopOrdersRealtime(){
   if (ordersChannel) sb.removeChannel(ordersChannel);
   ordersChannel = null;
+}
+
+function stopRoastingRealtime() {
+  if (roastingChannel) sb.removeChannel(roastingChannel);
+  roastingChannel = null;
 }
 
 // Wire the new tab button (and keep your existing tab logic)
@@ -887,6 +891,12 @@ function setupAuthenticatedClient(session) {
   );
 }
 
+function updateAuthUI(isSignedIn, email = '') {
+  authStatus.textContent = isSignedIn ? `Signed in: ${email}` : 'Not signed in';
+  btnSignIn.style.display = isSignedIn ? 'none' : '';
+  btnSignOut.style.display = isSignedIn ? '' : 'none';
+}
+
 (async function init() {
   newActive();
   wireActiveInputs();
@@ -904,6 +914,7 @@ function setupAuthenticatedClient(session) {
       updateAuthUI(true, session.user.email);
     } else {
       stopOrdersRealtime();
+      stopRoastingRealtime();
       allRoasts = [];
       renderTable();
       updateAuthUI(false);
