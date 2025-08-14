@@ -254,7 +254,6 @@
 // ----- Supabase config -----
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 // UI helpers
 const authStatus = document.getElementById('authStatus');
@@ -284,29 +283,58 @@ btnSignOut.onclick = async () => {
   btnSignOut.style.display = 'none';
 };
 
-// Keep UI in sync with auth state
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let supabaseClient = null;
+
 supabase.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) {
+    // Create client now that we have a logged-in user
+    supabaseClient = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON,
+      {
+        global: {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`
+          }
+        }
+      }
+    );
+
+    // UI state
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
+
+    // Orders logic
     startOrdersRealtime();
     loadOrders();
-    supabase
+
+    // Roasting log realtime subscription
+    supabaseClient
       .channel('roasting-log-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
-        allRoasts = await db.all();
+        const { data } = await supabaseClient.from('roasting_log').select('*');
+        allRoasts = data || [];
         renderTable();
       })
       .subscribe();
-    allRoasts = await db.all();
+
+    // Initial roasting log load
+    const { data } = await supabaseClient.from('roasting_log').select('*');
+    allRoasts = data || [];
     renderTable();
+
   } else {
+    // Logged out
+    supabaseClient = null;
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
     btnSignOut.style.display = 'none';
+
     stopOrdersRealtime();
     clearOrders();
+
     allRoasts = [];
     renderTable();
   }
@@ -363,7 +391,7 @@ function renderOrders(rows) {
     if (btnComplete) btnComplete.style.display = '';
 
     // Mark order as roasting
-    supabase.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
+    supabaseClient.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
   };
 
     tb.appendChild(tr);
@@ -387,7 +415,7 @@ function finishRoast() {
 }
 
 async function completeRoast(orderId) {
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from('order_queue')
     .update({ status: 'completed' })
     .eq('id', orderId);
@@ -403,7 +431,7 @@ async function completeRoast(orderId) {
 
 // Load existing orders once
 async function loadOrders(){
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('order_queue')
     .select(`
       id,
@@ -428,7 +456,7 @@ function clearOrders(){ document.getElementById('ordersTbody').innerHTML=''; }
 let ordersChannel = null;
 function startOrdersRealtime(){
   if (ordersChannel) return;
-  ordersChannel = supabase.channel('orders-realtime')
+  ordersChannel = supabaseClient.channel('orders-realtime')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'order_queue' }, payload => {
       loadOrders();
     })
@@ -461,33 +489,28 @@ ordersTabButton.addEventListener('click', () => {
 // ------- Robust storage: Supabase table -------
 const db = {
   async all() {
-    const { data, error } = await supabase
+    if (!supabaseClient) return [];
+    const { data, error } = await supabaseClient
       .from('roasting_log')
       .select('*')
       .order('created_at', { ascending: false });
-    if (error) {
-      console.error('Error loading roasting log:', error);
-      return [];
-    }
+    if (error) { console.error(error); return []; }
     return data;
   },
   async put(roast) {
-    const { error } = await supabase
+    if (!supabaseClient) return;
+    const { error } = await supabaseClient
       .from('roasting_log')
       .upsert(roast, { onConflict: 'id' });
-    if (error) {
-      console.error('Error saving roast:', error);
-    }
-    return roast;
+    if (error) console.error(error);
   },
   async delete(id) {
-    const { error } = await supabase
+    if (!supabaseClient) return;
+    const { error } = await supabaseClient
       .from('roasting_log')
       .delete()
       .eq('id', id);
-    if (error) {
-      console.error('Error deleting roast:', error);
-    }
+    if (error) console.error(error);
   }
 };
 
@@ -610,7 +633,7 @@ $('#btnSave').onclick = async () => {
 
     // 2. Mark linked order as completed in Supabase (if applicable)
     if (active.orderId) {
-      const { error } = await supabase
+      const { error } = await supabaseClient
         .from('order_queue')
         .update({ status: 'completed' })
         .eq('id', active.orderId);
@@ -897,8 +920,10 @@ $$('.tab').forEach(t=>{
 (async function init(){
   newActive();
   wireActiveInputs();
-  allRoasts = await db.all();
-  renderTable();
+  if (supabaseClient) {
+    allRoasts = await db.all();
+    renderTable();
+  }
   await ensurePersistence();
   document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
 })();
