@@ -292,12 +292,23 @@ supabase.auth.onAuthStateChange(async (event, session) => {
     btnSignOut.style.display = '';
     startOrdersRealtime();
     loadOrders();
+    supabase
+      .channel('roasting-log-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
+        allRoasts = await db.all();
+        renderTable();
+      })
+      .subscribe();
+    allRoasts = await db.all();
+    renderTable();
   } else {
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
     btnSignOut.style.display = 'none';
     stopOrdersRealtime();
     clearOrders();
+    allRoasts = [];
+    renderTable();
   }
 });
 
@@ -447,122 +458,41 @@ ordersTabButton.addEventListener('click', () => {
   }
 })();
 
-// ------- Robust storage: IndexedDB + fallback + normalization -------
-const DB_NAME = 'roastingLogDB';
-const STORE   = 'roasts';
-const FALLBACK_KEY = 'roastingLog_fallback_v1';
-let storageMode = 'indexeddb'; // or 'localStorage' or 'memory'
-
-function normalizeRows(x){
-  if (Array.isArray(x)) return x;
-  if (!x) return [];
-  if (typeof x === 'object') return Object.values(x);
-  return [];
-}
-
-function openIDB(){
-  return new Promise((res, rej) => {
-    if (!('indexedDB' in window)) return rej(new Error('IndexedDB not supported'));
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
-    req.onsuccess = () => res(req.result);
-    req.onerror = () => rej(req.error || new Error('IndexedDB open error'));
-  });
-}
-
-// Read ALL: resolve with req.result (array)
-async function idbAll(){
-  const db = await openIDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(STORE, 'readonly');
-    const st = tx.objectStore(STORE);
-    const req = st.getAll();
-    req.onsuccess = () => res(req.result || []);
-    req.onerror   = () => rej(req.error || new Error('getAll failed'));
-  });
-}
-
-// PUT: resolve after transaction completes
-async function idbPut(roast){
-  const db = await openIDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    const st = tx.objectStore(STORE);
-    st.put(roast);
-    tx.oncomplete = () => res(true);
-    tx.onerror    = () => rej(tx.error || new Error('put failed'));
-  });
-}
-
-// DELETE: resolve after transaction completes
-async function idbDelete(id){
-  const db = await openIDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    const st = tx.objectStore(STORE);
-    st.delete(id);
-    tx.oncomplete = () => res(true);
-    tx.onerror    = () => rej(tx.error || new Error('delete failed'));
-  });
-}
-
+// ------- Robust storage: Supabase table -------
 const db = {
-  async all(){
-    try {
-      const rows = await idbAll();
-      storageMode = 'indexeddb';
-      return normalizeRows(rows);
-    } catch {
-      try {
-        const raw = localStorage.getItem(FALLBACK_KEY);
-        storageMode = 'localStorage';
-        return normalizeRows(raw ? JSON.parse(raw) : []);
-      } catch {
-        storageMode = 'memory';
-        return normalizeRows(window.__roastMem || []);
-      }
+  async all() {
+    const { data, error } = await supabase
+      .from('roasting_log')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('Error loading roasting log:', error);
+      return [];
     }
+    return data;
   },
-  async put(roast){
-    try {
-      await idbPut(roast);
-      storageMode = 'indexeddb';
-      return roast;
-    } catch {
-      // fallback to localStorage/memory
-      const rows = await db.all();
-      const i = rows.findIndex(r => r.id === roast.id);
-      if (i >= 0) rows[i] = roast; else rows.push(roast);
-      try {
-        localStorage.setItem(FALLBACK_KEY, JSON.stringify(rows));
-        storageMode = 'localStorage';
-        return roast;
-      } catch {
-        window.__roastMem = rows;
-        storageMode = 'memory';
-        return roast;
-      }
+  async put(roast) {
+    const { error } = await supabase
+      .from('roasting_log')
+      .upsert(roast, { onConflict: 'id' });
+    if (error) {
+      console.error('Error saving roast:', error);
     }
+    return roast;
   },
-  async delete(id){
-    try {
-      await idbDelete(id);
-      storageMode = 'indexeddb';
-    } catch {
-      const rows = await db.all();
-      const filtered = rows.filter(r => r.id !== id);
-      try {
-        localStorage.setItem(FALLBACK_KEY, JSON.stringify(filtered));
-        storageMode = 'localStorage';
-      } catch {
-        window.__roastMem = filtered;
-        storageMode = 'memory';
-      }
+  async delete(id) {
+    const { error } = await supabase
+      .from('roasting_log')
+      .delete()
+      .eq('id', id);
+    if (error) {
+      console.error('Error deleting roast:', error);
     }
   }
 };
 
 // ------- Optional: show persistence status -------
+let storageMode = 'supabase';
 async function ensurePersistence(){
   const pill = document.getElementById('status-pill');
   if (navigator.storage && navigator.storage.persist) {
