@@ -255,7 +255,6 @@
 const SUPABASE_URL  = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-const REDIRECT_URL = 'https://duckieray.github.io/roasting-log.html';
 
 /* =================== UI helpers =================== */
 const $  = s => document.querySelector(s);
@@ -605,12 +604,12 @@ async function saveDetail(){
   selectedRoast.profile = getVal('d_profile');
   selectedRoast.startWeight = getVal('d_startWeight');
   selectedRoast.chargeTemp = getVal('d_chargeTemp');
-  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || null;
-  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || null;
+  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || '';
+  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || '';
   selectedRoast.firstCrackTemp = getVal('d_firstCrackTemp');
-  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || null;
+  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || selectedRoast.secondCrackTime || '';
   selectedRoast.secondCrackTemp = getVal('d_secondCrackTemp');
-  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || null;
+  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || selectedRoast.endTime || '';
   selectedRoast.endWeight = getVal('d_endWeight');
   selectedRoast.endTemp = getVal('d_endTemp');
   selectedRoast.notes = getVal('d_notes');
@@ -670,10 +669,7 @@ ordersTabButton.addEventListener('click', () => {
 btnSignIn.onclick = async () => {
   const email = prompt("Enter your work email to sign in:");
   if (!email) return;
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: REDIRECT_URL }
-  });
+  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
   if (error) return uiError('Sign-in', error);
   alert("Check your email for a sign-in link. After you tap it, return to this page.");
 };
@@ -689,10 +685,6 @@ btnSignOut.addEventListener('click', async () => {
 
 sb.auth.onAuthStateChange(async (_event, session) => {
   if (session?.user) {
-    // Once logged in, strip any leftover hash so reloads don’t break auth
-    if (window.location.hash && /access_token=/.test(window.location.hash)) {
-      history.replaceState({}, document.title, window.location.pathname);
-    }
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
@@ -731,10 +723,6 @@ async function ensurePersistence(){
 
 /* =================== Single boot =================== */
 (async function init(){
-  // If the magic link redirected us with tokens in the hash, remove them
-  if (window.location.hash && /access_token=/.test(window.location.hash)) {
-    history.replaceState({}, document.title, window.location.pathname);
-  }
   newActive();
   wireActiveInputs();
 
