@@ -255,6 +255,7 @@
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const REDIRECT_URL = 'https://duckieray.github.io/roasting-log.html';
 
 // UI helpers
 const authStatus = document.getElementById('authStatus');
@@ -274,9 +275,9 @@ btnSignIn.onclick = async () => {
   if (!email) return;
   const { error } = await sb.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: window.location.href }
+    options: { emailRedirectTo: REDIRECT_URL }
   });
-  if (error) return alert("Sign-in failed: " + error.message);
+  if (error) return uiError('Sign-in', error);
   alert("Check your email for a sign-in link. After you tap it, return to this page.");
 };
 
@@ -290,6 +291,11 @@ btnSignOut.addEventListener('click', async () => {
 
 sb.auth.onAuthStateChange(async (_event, session) => {
   if (session?.user) {
+    // Once logged in, strip any leftover hash so reloads don’t break auth
+    if (window.location.hash && /access_token=/.test(window.location.hash)) {
+      history.replaceState({}, document.title, window.location.pathname);
+    }
+    
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
@@ -885,6 +891,11 @@ $$('.tab').forEach(t=>{
 
 /* ---------- boot ---------- */
 (async function init(){
+  // Clean up any auth hash fragments so refreshes don’t “replay” them
+  if (window.location.hash && /access_token=/.test(window.location.hash)) {
+    history.replaceState({}, document.title, window.location.pathname);
+  }
+
   newActive();
   wireActiveInputs();
 
