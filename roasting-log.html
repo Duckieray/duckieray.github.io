@@ -289,7 +289,6 @@ btnSignOut.addEventListener('click', async () => {
 
 supabase.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) {
-    supabaseClient = supabase; // same instance
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
@@ -626,6 +625,10 @@ $('#btnSave').onclick = async () => {
   try {
     // 1. Save roast locally
     await db.put(active);
+    if (!supabaseClient) {
+      console.warn("No Supabase client available — are you signed in?");
+      return;
+    }
     allRoasts = await db.all();
     renderTable();
 
