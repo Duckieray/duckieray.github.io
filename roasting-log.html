@@ -507,56 +507,82 @@ async function idbDelete(id){
 }
 
 const db = {
-  async all(){
-    try {
-      const rows = await idbAll();
-      storageMode = 'indexeddb';
-      return normalizeRows(rows);
-    } catch {
+  async all() {
+    if (useRemote) {
+      const { data, error } = await supabase
+        .from('roasting_log')
+        .select('*')
+        .order('date', { ascending: false });
+      if (error) {
+        console.error('Remote all() error:', error);
+        return [];
+      }
+      return data || [];
+    } else {
+      // local IndexedDB logic
       try {
-        const raw = localStorage.getItem(FALLBACK_KEY);
-        storageMode = 'localStorage';
-        return normalizeRows(raw ? JSON.parse(raw) : []);
+        const rows = await idbAll();
+        storageMode = 'indexeddb';
+        return normalizeRows(rows);
       } catch {
-        storageMode = 'memory';
-        return normalizeRows(window.__roastMem || []);
+        try {
+          const raw = localStorage.getItem(FALLBACK_KEY);
+          storageMode = 'localStorage';
+          return normalizeRows(raw ? JSON.parse(raw) : []);
+        } catch {
+          storageMode = 'memory';
+          return normalizeRows(window.__roastMem || []);
+        }
       }
     }
   },
-  async put(roast){
-    try {
-      await idbPut(roast);
-      storageMode = 'indexeddb';
+
+  async put(roast) {
+    if (useRemote) {
+      const { error } = await supabase.from('roasting_log').upsert(roast);
+      if (error) console.error('Remote put() error:', error);
       return roast;
-    } catch {
-      // fallback to localStorage/memory
-      const rows = await db.all();
-      const i = rows.findIndex(r => r.id === roast.id);
-      if (i >= 0) rows[i] = roast; else rows.push(roast);
+    } else {
       try {
-        localStorage.setItem(FALLBACK_KEY, JSON.stringify(rows));
-        storageMode = 'localStorage';
+        await idbPut(roast);
+        storageMode = 'indexeddb';
         return roast;
       } catch {
-        window.__roastMem = rows;
-        storageMode = 'memory';
-        return roast;
+        const rows = await db.all();
+        const i = rows.findIndex(r => r.id === roast.id);
+        if (i >= 0) rows[i] = roast; else rows.push(roast);
+        try {
+          localStorage.setItem(FALLBACK_KEY, JSON.stringify(rows));
+          storageMode = 'localStorage';
+          return roast;
+        } catch {
+          window.__roastMem = rows;
+          storageMode = 'memory';
+          return roast;
+        }
       }
     }
   },
-  async delete(id){
-    try {
-      await idbDelete(id);
-      storageMode = 'indexeddb';
-    } catch {
-      const rows = await db.all();
-      const filtered = rows.filter(r => r.id !== id);
+
+  async delete(id) {
+    if (useRemote) {
+      const { error } = await supabase.from('roasting_log').delete().eq('id', id);
+      if (error) console.error('Remote delete() error:', error);
+      return;
+    } else {
       try {
-        localStorage.setItem(FALLBACK_KEY, JSON.stringify(filtered));
-        storageMode = 'localStorage';
+        await idbDelete(id);
+        storageMode = 'indexeddb';
       } catch {
-        window.__roastMem = filtered;
-        storageMode = 'memory';
+        const rows = await db.all();
+        const filtered = rows.filter(r => r.id !== id);
+        try {
+          localStorage.setItem(FALLBACK_KEY, JSON.stringify(filtered));
+          storageMode = 'localStorage';
+        } catch {
+          window.__roastMem = filtered;
+          storageMode = 'memory';
+        }
       }
     }
   }
@@ -574,6 +600,32 @@ async function ensurePersistence(){
   }
   pill.textContent = `Storage: ${storageMode}`;
 }
+
+
+/* ---------- remote storage ----------- */
+let useRemote = false; // determines storage backend
+
+async function updateAuthUI(session) {
+  useRemote = !!session?.user;
+
+  if (useRemote) {
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+    startOrdersRealtime();
+    allRoasts = await db.all(); // load from remote
+    renderTable();
+  } else {
+    authStatus.textContent = "Not signed in";
+    btnSignIn.style.display = '';
+    btnSignOut.style.display = 'none';
+    stopOrdersRealtime();
+    clearOrders();
+    allRoasts = await db.all(); // load from local
+    renderTable();
+  }
+}
+
 
 /* ---------- state & utils ---------- */
 const $ = s => document.querySelector(s);
