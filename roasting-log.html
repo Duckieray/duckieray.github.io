@@ -262,6 +262,11 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
   }
 });
 
+// Clean up realtime channels when the tab is closed or refreshed
+window.addEventListener("beforeunload", () => {
+  supabase.removeAllChannels();
+});
+
 let useRemote = false;
 
 // UI helpers
@@ -916,12 +921,12 @@ async function saveDetail(){
   selectedRoast.startWeight = getVal('d_startWeight');
   selectedRoast.chargeTemp = getVal('d_chargeTemp');
 
-  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || '';
-  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || '';
+  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || null;
+  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || null;
   selectedRoast.firstCrackTemp = getVal('d_firstCrackTemp');
-  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || selectedRoast.secondCrackTime || '';
+  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || selectedRoast.secondCrackTime || null;
   selectedRoast.secondCrackTemp = getVal('d_secondCrackTemp');
-  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || selectedRoast.endTime || '';
+  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || selectedRoast.endTime || null;
   selectedRoast.endWeight = getVal('d_endWeight');
   selectedRoast.endTemp = getVal('d_endTemp');
   selectedRoast.notes = getVal('d_notes');
