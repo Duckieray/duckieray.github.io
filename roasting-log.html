@@ -262,6 +262,8 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
   }
 });
 
+let useRemote = false;
+
 // UI helpers
 const authStatus = document.getElementById('authStatus');
 const btnSignIn  = document.getElementById('btnSignIn');
@@ -537,8 +539,6 @@ async function idbDelete(id){
     tx.onerror    = () => rej(tx.error || new Error('delete failed'));
   });
 }
-
-let useRemote = false;
 
 const db = {
   async all() {
