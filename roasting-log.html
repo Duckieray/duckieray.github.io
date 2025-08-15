@@ -292,14 +292,14 @@ btnSignOut.onclick = async () => {
 };
 
 // Keep UI in sync with auth state
-
 supabase.auth.onAuthStateChange(async (event, session) => {
-  if (session?.user) {
+  useRemote = !!session?.user;
+
+  if (useRemote) {
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
     startOrdersRealtime();
-
     loadOrders();
   } else {
     authStatus.textContent = "Not signed in";
@@ -308,7 +308,12 @@ supabase.auth.onAuthStateChange(async (event, session) => {
     stopOrdersRealtime();
     clearOrders();
   }
+
+  // Always reload roasts from correct source when auth changes
+  allRoasts = await db.all();
+  renderTable();
 });
+
 
 async function getSessionUser() {
   const { data: { session }, error } = await supabase.auth.getSession();
@@ -445,7 +450,8 @@ ordersTabButton.addEventListener('click', () => {
   const { data: { session }, error } = await supabase.auth.getSession();
   if (error) console.error("GetSession error:", error);
   
-  if (session?.user) {
+  useRemote = !!session?.user;
+  if (useRemote) {
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
@@ -512,6 +518,8 @@ async function idbDelete(id){
     tx.onerror    = () => rej(tx.error || new Error('delete failed'));
   });
 }
+
+let useRemote = false;
 
 const db = {
   async all() {
