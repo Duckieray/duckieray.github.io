@@ -912,34 +912,44 @@ function openDetail(roastId){
   M('detailModal').style.display = 'flex';
 }
 
-async function saveDetail(){
-  if (!selectedRoast) return;
-  selectedRoast.date = getVal('d_date');
-  selectedRoast.roaster = getVal('d_roaster');
-  selectedRoast.bean = getVal('d_bean');
-  selectedRoast.profile = getVal('d_profile');
-  selectedRoast.startWeight = getVal('d_startWeight');
-  selectedRoast.chargeTemp = getVal('d_chargeTemp');
+function safeTime(fieldId, previousValue) {
+  const val = getVal(fieldId);
+  if (!val) return null;                  // blank input → null
+  return isoFromFlexible(val) || previousValue || null;
+}
 
-  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || null;
-  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || null;
-  selectedRoast.firstCrackTemp = getVal('d_firstCrackTemp');
-  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || selectedRoast.secondCrackTime || null;
-  selectedRoast.secondCrackTemp = getVal('d_secondCrackTemp');
-  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || selectedRoast.endTime || null;
-  selectedRoast.endWeight = getVal('d_endWeight');
-  selectedRoast.endTemp = getVal('d_endTemp');
-  selectedRoast.notes = getVal('d_notes');
+function safeNumber(fieldId) {
+  const val = getVal(fieldId);
+  return val === "" ? null : Number(val);
+}
+
+async function saveDetail() {
+  if (!selectedRoast) return;
+
+  selectedRoast.date = getVal('d_date') || null;
+  selectedRoast.roaster = getVal('d_roaster') || null;
+  selectedRoast.bean = getVal('d_bean') || null;
+  selectedRoast.profile = getVal('d_profile') || null;
+
+  selectedRoast.startWeight      = safeNumber('d_startWeight');
+  selectedRoast.chargeTemp       = safeNumber('d_chargeTemp');
+
+  selectedRoast.startTime        = safeTime('d_startTime', selectedRoast.startTime);
+  selectedRoast.firstCrackTime   = safeTime('d_firstCrackTime', selectedRoast.firstCrackTime);
+  selectedRoast.firstCrackTemp   = safeNumber('d_firstCrackTemp');
+  selectedRoast.secondCrackTime  = safeTime('d_secondCrackTime', selectedRoast.secondCrackTime);
+  selectedRoast.secondCrackTemp  = safeNumber('d_secondCrackTemp');
+  selectedRoast.endTime          = safeTime('d_endTime', selectedRoast.endTime);
+  selectedRoast.endWeight        = safeNumber('d_endWeight');
+  selectedRoast.endTemp          = safeNumber('d_endTemp');
+
+  selectedRoast.notes            = getVal('d_notes') || null;
 
   await db.put(selectedRoast);
   allRoasts = await db.all();
   renderTable();
-  M('status-pill').textContent = `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
-}
-
-function closeDetail(){
-  M('detailModal').style.display = 'none';
-  selectedRoast = null;
+  M('status-pill').textContent =
+    `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
 }
 
 // Wire modal buttons
