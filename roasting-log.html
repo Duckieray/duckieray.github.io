@@ -254,7 +254,13 @@
 // ----- Supabase config -----
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
 
 // UI helpers
 const authStatus = document.getElementById('authStatus');
@@ -279,6 +285,7 @@ btnSignIn.onclick = async () => {
 
 btnSignOut.onclick = async () => {
   await supabase.auth.signOut();
+  await db.clear(); 
   authStatus.textContent = "Signed out";
   btnSignIn.style.display = '';
   btnSignOut.style.display = 'none';
@@ -301,13 +308,10 @@ supabase.auth.onAuthStateChange(async (event, session) => {
   }
 });
 
-function itemsToText(items){
-  try {
-    const arr = Array.isArray(items) ? items : JSON.parse(items||"[]");
-    return arr.join(", "); // just join your string array
-  } catch {
-    return items || "";
-  }
+async function getSessionUser() {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error) console.error("Session error:", error);
+  return session?.user || null;
 }
 
 function renderOrders(rows) {
@@ -348,6 +352,7 @@ function renderOrders(rows) {
     showTab('active');
 
     // Mark order as roasting
+    getSessionUser()
     supabase.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
   };
 
@@ -388,23 +393,24 @@ async function completeRoast(orderId) {
 
 // Load existing orders once
 async function loadOrders(){
+  const user = await getSessionUser();
+  if (!user) {
+    console.warn("No signed-in user; skipping loadOrders.");
+    return;
+  }
+  
   const { data, error } = await supabase
     .from('order_queue')
-    .select(`
-      id,
-      created_at,
-      order_number,
-      billing_first_name,
-      billing_last_name,
-      product_name,
-      profile,
-      starting_weight_grams,
-      status
-    `)
-    .neq('status', 'completed') // hide completed roasts
+    .select('*')
+    .neq('status', 'completed')
     .order('created_at', { ascending: false });
-  if (error) { console.warn(error); return; }
-  renderOrders(data||[]);
+
+  if (error) {
+    console.warn("Load orders error:", error);
+    return;
+  }
+  
+  renderOrders(data || []);
 }
 
 function clearOrders(){ document.getElementById('ordersTbody').innerHTML=''; }
@@ -433,7 +439,10 @@ ordersTabButton.addEventListener('click', () => {
 
 // On boot, check session
 (async () => {
-  const { data: { session } } = await supabase.auth.getSession();
+  // Detect login from magic link
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error) console.error("GetSession error:", error);
+  
   if (session?.user) {
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
