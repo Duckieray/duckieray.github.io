@@ -254,61 +254,7 @@
 // ----- Supabase config -----
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
-const REDIRECT_URL = 'https://duckieray.github.io/roasting-log.html';
-let sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-let authClient = sb; // will swap to an authenticated client after login
-let ordersChannel = null;
-let roastingChannel = null;
-
-async function handleAuthSession(session) {
-  if (session?.user) {
-    // Authenticated client with JWT
-    authClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
-      global: {
-        headers: { Authorization: `Bearer ${session.access_token}` }
-      }
-    });
-
-    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
-    btnSignIn.style.display = 'none';
-    btnSignOut.style.display = '';
-
-    // Load all data once
-    await loadAllData();
-
-    // Start realtime listeners once
-    startOrdersRealtime();
-    startRoastingRealtime();
-
-  } else {
-    authClient = sb; // fallback to anon
-    authStatus.textContent = "Not signed in";
-    btnSignIn.style.display = '';
-    btnSignOut.style.display = 'none';
-
-    stopOrdersRealtime();
-    stopRoastingRealtime();
-    clearOrders();
-    allRoasts = [];
-    renderTable();
-  }
-}
-
-// Wire this once:
-sb.auth.onAuthStateChange((_event, session) => handleAuthSession(session));
-
-// And call it immediately on page load:
-(async () => {
-  const { data: { session } } = await sb.auth.getSession();
-  handleAuthSession(session);
-})();
-
-
-// tiny helper so your sign-in handler doesn't throw:
-function uiError(what, err) {
-  console.error(what, err);
-  alert(`${what} failed: ${err?.message || err}`);
-}
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 // UI helpers
 const authStatus = document.getElementById('authStatus');
@@ -326,54 +272,92 @@ function showTab(name){
 btnSignIn.onclick = async () => {
   const email = prompt("Enter your work email to sign in:");
   if (!email) return;
-  const { error } = await authClient.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: REDIRECT_URL }
-  });
-  if (error) return uiError('Sign-in', error);
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
+  if (error) return alert("Sign-in failed: " + error.message);
   alert("Check your email for a sign-in link. After you tap it, return to this page.");
 };
 
-btnSignOut.addEventListener('click', async () => {
-  await authClient.auth.signOut();
-  allRoasts = [];
-  renderTable();
+btnSignOut.onclick = async () => {
+  await supabase.auth.signOut();
+  authStatus.textContent = "Signed out";
+  btnSignIn.style.display = '';
+  btnSignOut.style.display = 'none';
+};
+
+// Keep UI in sync with auth state
+supabase.auth.onAuthStateChange(async (event, session) => {
+  if (session?.user) {
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+    startOrdersRealtime();
+    loadOrders();
+  } else {
+    authStatus.textContent = "Not signed in";
+    btnSignIn.style.display = '';
+    btnSignOut.style.display = 'none';
+    stopOrdersRealtime();
+    clearOrders();
+  }
 });
 
-function renderOrders() {
-  const ordersTableBody = document.getElementById('ordersTbody');
-  ordersTableBody.innerHTML = '';
-
-  orderQueue
-    .filter(order => order.customer || order.items) // show only real orders
-    .forEach(order => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${order.created_at ? new Date(order.created_at).toLocaleString() : ''}</td>
-        <td>${order.customer || ''}</td>
-        <td>${order.items || ''}</td>
-        <td>${order.notes || ''}</td>
-        <td>${order.status || ''}</td>
-        <td><button onclick="startRoast('${order.id}')">Start Roast</button></td>
-      `;
-      ordersTableBody.appendChild(tr);
-    });
+function itemsToText(items){
+  try {
+    const arr = Array.isArray(items) ? items : JSON.parse(items||"[]");
+    return arr.join(", "); // just join your string array
+  } catch {
+    return items || "";
+  }
 }
 
-function startRoast(orderId) {
-  const order = orderQueue.find(o => o.id === orderId);
-  if (!order) return;
-  active = {
-    ...active,
-    bean: order.items || '',
-    notes: order.notes || '',
-    orderId: order.id
+function renderOrders(rows) {
+  const tb = document.getElementById('ordersTbody');
+  tb.innerHTML = '';
+  rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${new Date(r.created_at).toLocaleString()}</td>
+      <td>${r.order_number || ''}</td>
+      <td>${[r.billing_first_name, r.billing_last_name].filter(Boolean).join(" ")}</td>
+      <td>${r.product_name || ''}</td>
+      <td>${r.profile || ''}</td>
+      <td>${r.starting_weight_grams || ''} g</td>
+      <td>${r.notes || ''}</td>
+      <td>${r.status || 'pending'}</td>
+      <td><button class="btn small accent2" data-id="${r.id}">Start Roast</button></td>
+    `;
+
+  tr.querySelector('button').onclick = () => {
+    // coerce whatever is in starting_weight_grams into a number (handles "544.3 g" or 544.3)
+    const grams = (() => {
+      const v = (r.starting_weight_grams ?? '').toString();
+      const n = parseFloat(v.replace(/[^\d.]/g, ''));
+      return isNaN(n) ? '' : n;
+    })();
+
+    // Fill the active roast fields the UI actually binds to
+    active.bean = r.product_name || '';
+    active.profile = r.profile || '';
+    active.startWeight = grams;          // <-- key change (not "startingWeight")
+    active.notes = `[Order ${r.order_number}] ${r.notes || ''}`;
+    active.orderId = r.id;               // so we can complete it later
+
+    bindActiveToUI();
+    showTab('active');
+
+    // Mark order as roasting
+    supabase.from('order_queue').update({ status: 'roasting' }).eq('id', r.id);
   };
-  bindActiveToUI();
-  showTab('active');
+
+    tb.appendChild(tr);
+  });
 }
 
 function finishRoast() {
+  saveRoastData(active); // your existing save logic
+
   if (window.activeRoasts && window.activeRoasts.length > 0) {
     const next = window.activeRoasts.shift();
     active.bean = next.bean;
@@ -388,7 +372,7 @@ function finishRoast() {
 }
 
 async function completeRoast(orderId) {
-  const { error } = await authClient
+  const { error } = await supabase
     .from('order_queue')
     .update({ status: 'completed' })
     .eq('id', orderId);
@@ -403,57 +387,41 @@ async function completeRoast(orderId) {
 }
 
 // Load existing orders once
-async function loadOrders() {
-  const { data, error } = await authClient
+async function loadOrders(){
+  const { data, error } = await supabase
     .from('order_queue')
-    .select('*')
+    .select(`
+      id,
+      created_at,
+      order_number,
+      billing_first_name,
+      billing_last_name,
+      product_name,
+      profile,
+      starting_weight_grams,
+      status
+    `)
+    .neq('status', 'completed') // hide completed roasts
     .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('loadOrders error:', error);
-    return;
-  }
-  orderQueue = data || [];
-  renderOrders();
+  if (error) { console.warn(error); return; }
+  renderOrders(data||[]);
 }
 
 function clearOrders(){ document.getElementById('ordersTbody').innerHTML=''; }
 
 // Realtime subscription
-function startOrdersRealtime() {
-  stopOrdersRealtime(); // prevent duplicates
-  ordersChannel = authClient
-    .channel('orders-realtime')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'order_queue' },
-      () => loadOrders()
-    )
-    .subscribe();
-}
-
-function stopOrdersRealtime() {
-  if (ordersChannel) {
-    authClient.removeChannel(ordersChannel);
-    ordersChannel = null;
-  }
-}
-
-function startRoastingRealtime() {
-  if (roastingChannel) return; // already started
-  roastingChannel = authClient
-    .channel('roasting-log-realtime')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, () => {
-      loadRoasts();
+let ordersChannel = null;
+function startOrdersRealtime(){
+  if (ordersChannel) return;
+  ordersChannel = supabase.channel('orders-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'order_queue' }, payload => {
+      loadOrders();
     })
     .subscribe();
 }
-
-function stopRoastingRealtime() {
-  if (roastingChannel) {
-    authClient.removeChannel(roastingChannel);
-    roastingChannel = null;
-  }
+function stopOrdersRealtime(){
+  if (ordersChannel) supabase.removeChannel(ordersChannel);
+  ordersChannel = null;
 }
 
 // Wire the new tab button (and keep your existing tab logic)
@@ -463,33 +431,134 @@ ordersTabButton.addEventListener('click', () => {
   showTab('orders');
 });
 
-// ------- Robust storage: Supabase table -------
+// On boot, check session
+(async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) {
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+    startOrdersRealtime();
+    loadOrders();
+  }
+})();
+
+// ------- Robust storage: IndexedDB + fallback + normalization -------
+const DB_NAME = 'roastingLogDB';
+const STORE   = 'roasts';
+const FALLBACK_KEY = 'roastingLog_fallback_v1';
+let storageMode = 'indexeddb'; // or 'localStorage' or 'memory'
+
+function normalizeRows(x){
+  if (Array.isArray(x)) return x;
+  if (!x) return [];
+  if (typeof x === 'object') return Object.values(x);
+  return [];
+}
+
+function openIDB(){
+  return new Promise((res, rej) => {
+    if (!('indexedDB' in window)) return rej(new Error('IndexedDB not supported'));
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error || new Error('IndexedDB open error'));
+  });
+}
+
+// Read ALL: resolve with req.result (array)
+async function idbAll(){
+  const db = await openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const st = tx.objectStore(STORE);
+    const req = st.getAll();
+    req.onsuccess = () => res(req.result || []);
+    req.onerror   = () => rej(req.error || new Error('getAll failed'));
+  });
+}
+
+// PUT: resolve after transaction completes
+async function idbPut(roast){
+  const db = await openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const st = tx.objectStore(STORE);
+    st.put(roast);
+    tx.oncomplete = () => res(true);
+    tx.onerror    = () => rej(tx.error || new Error('put failed'));
+  });
+}
+
+// DELETE: resolve after transaction completes
+async function idbDelete(id){
+  const db = await openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const st = tx.objectStore(STORE);
+    st.delete(id);
+    tx.oncomplete = () => res(true);
+    tx.onerror    = () => rej(tx.error || new Error('delete failed'));
+  });
+}
+
 const db = {
-  async all() {
-    const { data, error } = await authClient
-      .from('roasting_log')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) { console.error(error); return []; }
-    return data;
+  async all(){
+    try {
+      const rows = await idbAll();
+      storageMode = 'indexeddb';
+      return normalizeRows(rows);
+    } catch {
+      try {
+        const raw = localStorage.getItem(FALLBACK_KEY);
+        storageMode = 'localStorage';
+        return normalizeRows(raw ? JSON.parse(raw) : []);
+      } catch {
+        storageMode = 'memory';
+        return normalizeRows(window.__roastMem || []);
+      }
+    }
   },
-  async put(roast) {
-    const { error } = await authClient
-      .from('roasting_log')
-      .upsert(roast, { onConflict: 'id' });
-    if (error) console.error('Error saving roast:', error);
+  async put(roast){
+    try {
+      await idbPut(roast);
+      storageMode = 'indexeddb';
+      return roast;
+    } catch {
+      // fallback to localStorage/memory
+      const rows = await db.all();
+      const i = rows.findIndex(r => r.id === roast.id);
+      if (i >= 0) rows[i] = roast; else rows.push(roast);
+      try {
+        localStorage.setItem(FALLBACK_KEY, JSON.stringify(rows));
+        storageMode = 'localStorage';
+        return roast;
+      } catch {
+        window.__roastMem = rows;
+        storageMode = 'memory';
+        return roast;
+      }
+    }
   },
-  async delete(id) {
-    const { error } = await authClient
-      .from('roasting_log')
-      .delete()
-      .eq('id', id);
-    if (error) console.error(error);
+  async delete(id){
+    try {
+      await idbDelete(id);
+      storageMode = 'indexeddb';
+    } catch {
+      const rows = await db.all();
+      const filtered = rows.filter(r => r.id !== id);
+      try {
+        localStorage.setItem(FALLBACK_KEY, JSON.stringify(filtered));
+        storageMode = 'localStorage';
+      } catch {
+        window.__roastMem = filtered;
+        storageMode = 'memory';
+      }
+    }
   }
 };
 
 // ------- Optional: show persistence status -------
-let storageMode = 'supabase';
 async function ensurePersistence(){
   const pill = document.getElementById('status-pill');
   if (navigator.storage && navigator.storage.persist) {
@@ -512,27 +581,21 @@ const todayStr = () => new Date().toLocaleDateString();
 let active = {};
 let allRoasts = [];
 
-function newActive() {
+function newActive(){
   active = {
-    id: crypto.randomUUID(),  // Always a unique UUID
-    date: new Date().toISOString().split('T')[0],
-    roaster: '',
-    bean: '',
-    profile: '',
-    notes: '',
-    startWeight: null,   // Match DB column type
-    chargeTemp: null,
-    startTime: null,
-    firstCrackTime: null,
-    firstCrackTemp: null,
-    secondCrackTime: null,
-    secondCrackTemp: null,
-    endTime: null,
-    endWeight: null,
-    endTemp: null,
-    orderId: null,
-    created_at: new Date().toISOString()
+    id: 'B' + Date.now(),
+    date: todayStr(),
+    roaster: '', bean: '', profile: '', notes: '',
+    startWeight: '', chargeTemp: '',
+    startTime: '', firstCrackTime: '', firstCrackTemp: '',
+    secondCrackTime: '', secondCrackTemp: '',
+    endTime: '', endWeight: '', endTemp: '',
+    orderId: null
   };
+  bindActiveToUI();
+  document.getElementById('btnComplete')?.style && (document.getElementById('btnComplete').style.display = 'none'); // hide it
+  $('#status-pill').textContent = 'Ready';
+  $('#deltaHint').textContent = '';
 }
 
 function bindActiveToUI(){
@@ -600,26 +663,48 @@ $('#btnEnd').onclick = () => {
 };
 $('#btnReset').onclick = () => newActive();
 
-const btnSave = document.getElementById('btnSave');
-btnSave.onclick = async () => {
+$('#btnSave').onclick = async () => {
+  if (!active.startTime) { 
+    alert('Tap Start to begin the roast.'); 
+    return; 
+  }
   try {
-    console.log("Saving roast:", active);
+    // 1. Save roast locally
+    await db.put(active);
+    allRoasts = await db.all();
+    renderTable();
 
-    // Ensure we have an authClient
-    if (!authClient) {
-      throw new Error("Not authenticated");
+    // 2. Mark linked order as completed in Supabase (if applicable)
+    if (active.orderId) {
+      const { error } = await supabase
+        .from('order_queue')
+        .update({ status: 'completed' })
+        .eq('id', active.orderId);
+
+      if (error) {
+        console.error('Error completing order in Supabase:', error);
+      } else {
+        console.log(`Order ${active.orderId} marked as completed`);
+      }
     }
 
-    // Upsert into roasting_log
-    const { error } = await authClient
-      .from('roasting_log')
-      .upsert(active, { onConflict: 'id' });
+    // 3. Update UI status pill
+    const pill = document.getElementById('status-pill');
+    pill.textContent = `Saved ${active.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
 
-    if (error) throw error;
+    // 4. Reset active roast
+    newActive();
 
-    console.log("Roast saved successfully");
+    // 5. Optional: refresh orders list immediately
+    if (typeof loadOrders === 'function') {
+      loadOrders();
+    }
+
   } catch (err) {
-    console.error("Save roast error:", err.message || err);
+    alert(
+      'Save failed.\n\nTip: avoid Private/Incognito and open via http(s) instead of file://\n\nDetails: ' +
+      (err?.message || err)
+    );
   }
 };
 
@@ -764,12 +849,13 @@ async function saveDetail(){
   selectedRoast.profile = getVal('d_profile');
   selectedRoast.startWeight = getVal('d_startWeight');
   selectedRoast.chargeTemp = getVal('d_chargeTemp');
-  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || null;
-  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || null;
+
+  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || '';
+  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || '';
   selectedRoast.firstCrackTemp = getVal('d_firstCrackTemp');
-  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || null;
+  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || selectedRoast.secondCrackTime || '';
   selectedRoast.secondCrackTemp = getVal('d_secondCrackTemp');
-  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || null;
+  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || selectedRoast.endTime || '';
   selectedRoast.endWeight = getVal('d_endWeight');
   selectedRoast.endTemp = getVal('d_endTemp');
   selectedRoast.notes = getVal('d_notes');
@@ -873,19 +959,15 @@ $$('.tab').forEach(t=>{
   });
 });
 
-
-/* --------- load data ------- */
-async function loadAllData() {
-  // Load current roasts
+/* ---------- boot ---------- */
+(async function init(){
+  newActive();
+  wireActiveInputs();
   allRoasts = await db.all();
   renderTable();
-
-  // Load orders
-  loadOrders();
-  startOrdersRealtime();
-  startRoastingRealtime();
-}
-
+  await ensurePersistence();
+  document.getElementById('status-pill').textContent += ` • Records: ${allRoasts.length}`;
+})();
 </script>
 </body>
 </html>
