@@ -290,36 +290,12 @@ btnSignOut.addEventListener('click', async () => {
 });
 
 btnSignOut.onclick = async () => {
-  await supabase.auth.signOut();
-  await db.clear(); 
-  authStatus.textContent = "Signed out";
-  btnSignIn.style.display = '';
-  btnSignOut.style.display = 'none';
-};
-
-// Keep UI in sync with auth state
-supabase.auth.onAuthStateChange(async (event, session) => {
-  useRemote = !!session?.user;
-
-  if (useRemote) {
-    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
-    btnSignIn.style.display = 'none';
-    btnSignOut.style.display = '';
-    startOrdersRealtime();
-    loadOrders();
-  } else {
-    authStatus.textContent = "Not signed in";
-    btnSignIn.style.display = '';
-    btnSignOut.style.display = 'none';
-    stopOrdersRealtime();
-    clearOrders();
+  try {
+    await supabase.auth.signOut();
+  } catch (e) {
+    console.error('signOut error:', e);
   }
-
-  // Always reload roasts from correct source when auth changes
-  allRoasts = await db.all();
-  renderTable();
-});
-
+};
 
 async function getSessionUser() {
   const { data: { session }, error } = await supabase.auth.getSession();
@@ -443,6 +419,21 @@ function stopOrdersRealtime(){
   ordersChannel = null;
 }
 
+let roastLogChannel = null;
+function startRoastLogRealtime(){
+  if (roastLogChannel) return;
+  roastLogChannel = supabase.channel('roastlog-rt')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'roasting_log' }, async () => {
+      allRoasts = await db.all();
+      renderTable();
+    })
+    .subscribe();
+}
+function stopRoastLogRealtime(){
+  if (roastLogChannel) supabase.removeChannel(roastLogChannel);
+  roastLogChannel = null;
+}
+
 // Wire the new tab button (and keep your existing tab logic)
 ordersTabButton.addEventListener('click', () => {
   $$('.tab').forEach(x=>x.classList.remove('active'));
@@ -458,12 +449,14 @@ async function updateAuthUI(session) {
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
     startOrdersRealtime();
+    startRoastLogRealtime()
     loadOrders();
   } else {
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
     btnSignOut.style.display = 'none';
     stopOrdersRealtime();
+    stopRoastLogRealtime()
     clearOrders();
   }
 
@@ -472,7 +465,9 @@ async function updateAuthUI(session) {
 }
 
 // Make sure both boot and auth change use the same function:
-supabase.auth.onAuthStateChange((_event, session) => {
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN') {
+  }
   updateAuthUI(session);
 });
 
@@ -542,81 +537,88 @@ async function idbDelete(id){
 
 const db = {
   async all() {
+    // decide backend *now*
+    const { data: { session } } = await supabase.auth.getSession();
+    const useRemote = !!session?.user;
+
     if (useRemote) {
       const { data, error } = await supabase
         .from('roasting_log')
         .select('*')
         .order('date', { ascending: false });
-      if (error) {
-        console.error('Remote all() error:', error);
-        return [];
-      }
+      if (error) { console.error('Remote all() error:', error); return []; }
       return data || [];
-    } else {
-      // local IndexedDB logic
+    }
+
+    // local IndexedDB path
+    try {
+      const rows = await idbAll();
+      storageMode = 'indexeddb';
+      return normalizeRows(rows);
+    } catch {
       try {
-        const rows = await idbAll();
-        storageMode = 'indexeddb';
-        return normalizeRows(rows);
+        const raw = localStorage.getItem(FALLBACK_KEY);
+        storageMode = 'localStorage';
+        return normalizeRows(raw ? JSON.parse(raw) : []);
       } catch {
-        try {
-          const raw = localStorage.getItem(FALLBACK_KEY);
-          storageMode = 'localStorage';
-          return normalizeRows(raw ? JSON.parse(raw) : []);
-        } catch {
-          storageMode = 'memory';
-          return normalizeRows(window.__roastMem || []);
-        }
+        storageMode = 'memory';
+        return normalizeRows(window.__roastMem || []);
       }
     }
   },
 
   async put(roast) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const useRemote = !!session?.user;
+
     if (useRemote) {
       const { error } = await supabase.from('roasting_log').upsert(roast);
       if (error) console.error('Remote put() error:', error);
       return roast;
-    } else {
+    }
+
+    try {
+      await idbPut(roast);
+      storageMode = 'indexeddb';
+      return roast;
+    } catch {
+      const rows = await this.all();
+      const i = rows.findIndex(r => r.id === roast.id);
+      if (i >= 0) rows[i] = roast; else rows.push(roast);
       try {
-        await idbPut(roast);
-        storageMode = 'indexeddb';
+        localStorage.setItem(FALLBACK_KEY, JSON.stringify(rows));
+        storageMode = 'localStorage';
         return roast;
       } catch {
-        const rows = await db.all();
-        const i = rows.findIndex(r => r.id === roast.id);
-        if (i >= 0) rows[i] = roast; else rows.push(roast);
-        try {
-          localStorage.setItem(FALLBACK_KEY, JSON.stringify(rows));
-          storageMode = 'localStorage';
-          return roast;
-        } catch {
-          window.__roastMem = rows;
-          storageMode = 'memory';
-          return roast;
-        }
+        window.__roastMem = rows;
+        storageMode = 'memory';
+        return roast;
       }
     }
   },
 
   async delete(id) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const useRemote = !!session?.user;
+
     if (useRemote) {
       const { error } = await supabase.from('roasting_log').delete().eq('id', id);
       if (error) console.error('Remote delete() error:', error);
       return;
-    } else {
+    }
+
+    try {
+      await idbDelete(id);
+      storageMode = 'indexeddb';
+    } catch {
+      const rows = await this.all();
+      const filtered = rows.filter(r => r.id !== id);
       try {
-        await idbDelete(id);
-        storageMode = 'indexeddb';
+        localStorage.setItem(FALLBACK_KEY, JSON.stringify(filtered));
+        storageMode = 'localStorage';
       } catch {
-        const rows = await db.all();
-        const filtered = rows.filter(r => r.id !== id);
-        try {
-          localStorage.setItem(FALLBACK_KEY, JSON.stringify(filtered));
-          storageMode = 'localStorage';
-        } catch {
-          window.__roastMem = filtered;
-          storageMode = 'memory';
-        }
+        window.__roastMem = filtered;
+        storageMode = 'memory';
       }
     }
   }
