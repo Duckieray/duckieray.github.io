@@ -342,45 +342,35 @@ btnSignOut.addEventListener('click', async () => {
 
 function renderOrders() {
   const ordersTableBody = document.getElementById('ordersTbody');
+  ordersTableBody.innerHTML = '';
 
-  orderQueue.forEach(order => {
-    const tr = document.createElement('tr');
+  orderQueue
+    .filter(order => order.customer || order.items) // show only real orders
+    .forEach(order => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${order.created_at ? new Date(order.created_at).toLocaleString() : ''}</td>
+        <td>${order.customer || ''}</td>
+        <td>${order.items || ''}</td>
+        <td>${order.notes || ''}</td>
+        <td>${order.status || ''}</td>
+        <td><button onclick="startRoast('${order.id}')">Start Roast</button></td>
+      `;
+      ordersTableBody.appendChild(tr);
+    });
+}
 
-    // Create your order row cells here...
-    const startBtn = document.createElement('button');
-    startBtn.textContent = 'Start Roast';
-    startBtn.onclick = async () => {
-      try {
-        // Update order status in Supabase
-        const { error: updateError } = await authClient
-          .from('order_queue')
-          .update({ status: 'roasting' })
-          .eq('id', order.id);
-
-        if (updateError) throw updateError;
-
-        // Create new roast entry with linked orderId
-        newActive();
-        active.startWeight = order.grams || null;
-        active.bean = order.bean || '';
-        active.orderId = order.id;
-
-        console.log("New roast started:", active);
-
-        // Optionally save immediately or wait for btnSave
-        await authClient.from('roasting_log').insert(active);
-
-      } catch (err) {
-        console.error("Start roast error:", err.message || err);
-      }
-    };
-
-    const td = document.createElement('td');
-    td.appendChild(startBtn);
-    tr.appendChild(td);
-
-    ordersTableBody.appendChild(tr);
-  });
+function startRoast(orderId) {
+  const order = orderQueue.find(o => o.id === orderId);
+  if (!order) return;
+  active = {
+    ...active,
+    bean: order.items || '',
+    notes: order.notes || '',
+    orderId: order.id
+  };
+  bindActiveToUI();
+  showTab('active');
 }
 
 function finishRoast() {
@@ -413,23 +403,16 @@ async function completeRoast(orderId) {
 }
 
 // Load existing orders once
-async function loadOrders(){
+async function loadOrders() {
   const { data, error } = await authClient
     .from('order_queue')
-    .select(`
-      id,
-      created_at,
-      order_number,
-      billing_first_name,
-      billing_last_name,
-      product_name,
-      profile,
-      starting_weight_grams,
-      status
-    `)
-    .neq('status', 'completed') // hide completed roasts
+    .select('*')
     .order('created_at', { ascending: false });
-  if (error) { console.warn(error); return; }
+
+  if (error) {
+    console.error('loadOrders error:', error);
+    return;
+  }
   orderQueue = data || [];
   renderOrders();
 }
@@ -438,12 +421,14 @@ function clearOrders(){ document.getElementById('ordersTbody').innerHTML=''; }
 
 // Realtime subscription
 function startOrdersRealtime() {
-  if (ordersChannel) return; // already started
+  stopOrdersRealtime(); // prevent duplicates
   ordersChannel = authClient
     .channel('orders-realtime')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'order_queue' }, () => {
-      loadOrders();
-    })
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'order_queue' },
+      () => loadOrders()
+    )
     .subscribe();
 }
 
@@ -615,6 +600,7 @@ $('#btnEnd').onclick = () => {
 };
 $('#btnReset').onclick = () => newActive();
 
+const btnSave = document.getElementById('btnSave');
 btnSave.onclick = async () => {
   try {
     console.log("Saving roast:", active);
