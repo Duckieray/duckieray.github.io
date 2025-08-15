@@ -278,7 +278,7 @@ function showTab(name){
 btnSignIn.onclick = async () => {
   const email = prompt("Enter your work email to sign in:");
   if (!email) return;
-  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: 'https://duckieray.github.io/roasting-log.html' } });
   if (error) return alert("Sign-in failed: " + error.message);
   alert("Check your email for a sign-in link. After you tap it, return to this page.");
 };
