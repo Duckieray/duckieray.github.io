@@ -292,31 +292,22 @@ btnSignOut.onclick = async () => {
 };
 
 // Keep UI in sync with auth state
-let useRemote = false; // determines storage backend
 
-async function updateAuthUI(session) {
-  useRemote = !!session?.user;
-
-  if (useRemote) {
+supabase.auth.onAuthStateChange(async (event, session) => {
+  if (session?.user) {
     authStatus.textContent = "Signed in: " + (session.user.email || 'user');
     btnSignIn.style.display = 'none';
     btnSignOut.style.display = '';
     startOrdersRealtime();
-    allRoasts = await db.all(); // load from remote
-    renderTable();
+
+    loadOrders();
   } else {
     authStatus.textContent = "Not signed in";
     btnSignIn.style.display = '';
     btnSignOut.style.display = 'none';
     stopOrdersRealtime();
     clearOrders();
-    allRoasts = await db.all(); // load from local
-    renderTable();
   }
-}
-
-supabase.auth.onAuthStateChange((_event, session) => {
-  updateAuthUI(session);
 });
 
 async function getSessionUser() {
@@ -450,8 +441,17 @@ ordersTabButton.addEventListener('click', () => {
 
 // On boot, check session
 (async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  updateAuthUI(session);
+  // Detect login from magic link
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error) console.error("GetSession error:", error);
+  
+  if (session?.user) {
+    authStatus.textContent = "Signed in: " + (session.user.email || 'user');
+    btnSignIn.style.display = 'none';
+    btnSignOut.style.display = '';
+    startOrdersRealtime();
+    loadOrders();
+  }
 })();
 
 // ------- Robust storage: IndexedDB + fallback + normalization -------
