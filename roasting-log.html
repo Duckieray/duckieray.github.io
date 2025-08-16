@@ -115,12 +115,12 @@
     <button class="tab" data-tab="log">Roast Log</button>
     <span class="pill" id="status-pill">Ready</span>
     <div class="right split">
-      <button class="btn small" id="orderQueueTab" data-tab="orders">Order Queue</button>
+      <button class="tab btn small" id="orderQueueTab">Order Queue</button>
       <span id="authStatus" class="pill">Not signed in</span>
-      <button class="btn small" id="btnSignIn">Sign in</button>
-      <button class="btn small" id="btnSignOut" style="display:none;">Sign out</button>
-      <button class="btn small" id="exportCsv">Export CSV</button>
-      <label class="btn small" style="cursor:pointer">Import CSV
+      <button class="tab btn small" id="btnSignIn">Sign in</button>
+      <button class="tab btn small" id="btnSignOut" style="display:none;">Sign out</button>
+      <button class="tab btn small" id="exportCsv">Export CSV</button>
+      <label class="tab btn small" style="cursor:pointer">Import CSV
         <input id="importCsv" type="file" accept=".csv" style="display:none" />
       </label>
     </div>
@@ -438,6 +438,13 @@ function stopRoastLogRealtime(){
   if (roastLogChannel) supabase.removeChannel(roastLogChannel);
   roastLogChannel = null;
 }
+
+// Wire the new tab button (and keep your existing tab logic)
+ordersTabButton.addEventListener('click', () => {
+  $$('.tab').forEach(x=>x.classList.remove('active'));
+  ordersTabButton.classList.add('active');
+  showTab('orders');
+});
 
 async function updateAuthUI(session) {
   useRemote = !!session?.user;
@@ -905,44 +912,34 @@ function openDetail(roastId){
   M('detailModal').style.display = 'flex';
 }
 
-function safeTime(fieldId, previousValue) {
-  const val = getVal(fieldId);
-  if (!val) return null;                  // blank input → null
-  return isoFromFlexible(val) || previousValue || null;
-}
-
-function safeNumber(fieldId) {
-  const val = getVal(fieldId);
-  return val === "" ? null : Number(val);
-}
-
-async function saveDetail() {
+async function saveDetail(){
   if (!selectedRoast) return;
+  selectedRoast.date = getVal('d_date');
+  selectedRoast.roaster = getVal('d_roaster');
+  selectedRoast.bean = getVal('d_bean');
+  selectedRoast.profile = getVal('d_profile');
+  selectedRoast.startWeight = getVal('d_startWeight');
+  selectedRoast.chargeTemp = getVal('d_chargeTemp');
 
-  selectedRoast.date = getVal('d_date') || null;
-  selectedRoast.roaster = getVal('d_roaster') || null;
-  selectedRoast.bean = getVal('d_bean') || null;
-  selectedRoast.profile = getVal('d_profile') || null;
-
-  selectedRoast.startWeight      = safeNumber('d_startWeight');
-  selectedRoast.chargeTemp       = safeNumber('d_chargeTemp');
-
-  selectedRoast.startTime        = safeTime('d_startTime', selectedRoast.startTime);
-  selectedRoast.firstCrackTime   = safeTime('d_firstCrackTime', selectedRoast.firstCrackTime);
-  selectedRoast.firstCrackTemp   = safeNumber('d_firstCrackTemp');
-  selectedRoast.secondCrackTime  = safeTime('d_secondCrackTime', selectedRoast.secondCrackTime);
-  selectedRoast.secondCrackTemp  = safeNumber('d_secondCrackTemp');
-  selectedRoast.endTime          = safeTime('d_endTime', selectedRoast.endTime);
-  selectedRoast.endWeight        = safeNumber('d_endWeight');
-  selectedRoast.endTemp          = safeNumber('d_endTemp');
-
-  selectedRoast.notes            = getVal('d_notes') || null;
+  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || null;
+  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || null;
+  selectedRoast.firstCrackTemp = getVal('d_firstCrackTemp');
+  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || selectedRoast.secondCrackTime || null;
+  selectedRoast.secondCrackTemp = getVal('d_secondCrackTemp');
+  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || selectedRoast.endTime || null;
+  selectedRoast.endWeight = getVal('d_endWeight');
+  selectedRoast.endTemp = getVal('d_endTemp');
+  selectedRoast.notes = getVal('d_notes');
 
   await db.put(selectedRoast);
   allRoasts = await db.all();
   renderTable();
-  M('status-pill').textContent =
-    `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+  M('status-pill').textContent = `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+}
+
+function closeDetail(){
+  M('detailModal').style.display = 'none';
+  selectedRoast = null;
 }
 
 // Wire modal buttons
@@ -1023,22 +1020,13 @@ $('#importCsv').addEventListener('change', async (e)=>{
 });
 
 /* ---------- tabs ---------- */
-function showTab(name) {
-  $('#tab-active').style.display = name === 'active' ? 'block' : 'none';
-  $('#tab-log').style.display    = name === 'log'    ? 'block' : 'none';
-  $('#tab-orders').style.display = name === 'orders' ? 'block' : 'none';
-
-  $$('.tab').forEach(x => {
-    const tabName = x.getAttribute('data-tab');
-    x.classList.toggle('active', tabName === name);
-  });
-}
-
-// Wire up all tabs in one go
-$$('.tab[data-tab]').forEach(t => {
-  t.addEventListener('click', () => {
+$$('.tab').forEach(t=>{
+  t.addEventListener('click', ()=>{
     const name = t.getAttribute('data-tab');
-    if (name) showTab(name);
+    if(!name) return;
+    $$('.tab').forEach(x=>x.classList.toggle('active', x===t));
+    $('#tab-active').style.display = name==='active'?'block':'none';
+    $('#tab-log').style.display = name==='log'?'block':'none';
   });
 });
 
