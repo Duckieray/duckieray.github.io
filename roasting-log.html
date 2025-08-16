@@ -867,12 +867,9 @@ const setIf = (id, v) => { const el=M(id); if (el) el.value = v ?? ''; };
 const getVal = (id) => (M(id)?.value ?? '').trim();
 
 function isoFromFlexible(input){
-  // Accept ISO as-is; accept "HH:MM[:SS]" today; accept locale time
   const v = (input||'').trim();
-  if (!v) return '';
-  // ISO pass-through
+  if (!v) return null;  // instead of ""
   if (!isNaN(Date.parse(v))) return new Date(v).toISOString();
-  // HH:MM or HH:MM:SS today
   const hhmm = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
   const m = v.match(hhmm);
   if (m){
@@ -880,9 +877,8 @@ function isoFromFlexible(input){
     d.setHours(parseInt(m[1],10), parseInt(m[2],10), parseInt(m[3]||'0',10), 0);
     return d.toISOString();
   }
-  // Fallback: try Date parse
   const d = new Date(v);
-  return isNaN(d) ? '' : d.toISOString();
+  return isNaN(d) ? null : d.toISOString();  // instead of ""
 }
 
 function openDetail(roastId){
