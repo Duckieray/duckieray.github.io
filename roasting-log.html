@@ -908,37 +908,45 @@ function openDetail(roastId){
 function safeTime(fieldId, previousValue) {
   const val = getVal(fieldId);
 
-  if (val === "") {
-    // Explicitly cleared input → null
+  if (val === undefined || val === null) {
+    // No input element or undefined → just keep old value
+    return previousValue ?? null;
+  }
+
+  if (val.trim() === "") {
+    // User cleared field → null
     return null;
   }
 
   const parsed = isoFromFlexible(val);
   if (parsed) return parsed;
 
-  // If parsing failed and we had a previous value, keep it
-  return previousValue || null;
+  // Parsing failed → keep old value
+  return previousValue ?? null;
 }
 
 function safeNumber(fieldId, previousValue) {
   const val = getVal(fieldId);
 
-  if (val === "") {
-    // Explicitly cleared → null
-    return null;
+  if (val === undefined || val === null) {
+    return previousValue ?? null;
+  }
+
+  if (val.trim() === "") {
+    return null; // explicit clear
   }
 
   const num = Number(val);
-  return isNaN(num) ? previousValue || null : num;
+  return isNaN(num) ? (previousValue ?? null) : num;
 }
 
 async function saveDetail() {
   if (!selectedRoast) return;
 
-  selectedRoast.date           = getVal('d_date') || selectedRoast.date || null;
-  selectedRoast.roaster        = getVal('d_roaster') || selectedRoast.roaster || null;
-  selectedRoast.bean           = getVal('d_bean') || selectedRoast.bean || null;
-  selectedRoast.profile        = getVal('d_profile') || selectedRoast.profile || null;
+  selectedRoast.date           = getVal('d_date')      || selectedRoast.date      || null;
+  selectedRoast.roaster        = getVal('d_roaster')   || selectedRoast.roaster   || null;
+  selectedRoast.bean           = getVal('d_bean')      || selectedRoast.bean      || null;
+  selectedRoast.profile        = getVal('d_profile')   || selectedRoast.profile   || null;
 
   selectedRoast.startWeight    = safeNumber('d_startWeight', selectedRoast.startWeight);
   selectedRoast.chargeTemp     = safeNumber('d_chargeTemp', selectedRoast.chargeTemp);
