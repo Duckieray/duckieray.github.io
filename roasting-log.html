@@ -439,13 +439,6 @@ function stopRoastLogRealtime(){
   roastLogChannel = null;
 }
 
-// Wire the new tab button (and keep your existing tab logic)
-ordersTabButton.addEventListener('click', () => {
-  $$('.tab').forEach(x=>x.classList.remove('active'));
-  ordersTabButton.classList.add('active');
-  showTab('orders');
-});
-
 async function updateAuthUI(session) {
   useRemote = !!session?.user;
 
@@ -1030,13 +1023,22 @@ $('#importCsv').addEventListener('change', async (e)=>{
 });
 
 /* ---------- tabs ---------- */
-$$('.tab').forEach(t=>{
-  t.addEventListener('click', ()=>{
+function showTab(name) {
+  $('#tab-active').style.display = name === 'active' ? 'block' : 'none';
+  $('#tab-log').style.display    = name === 'log'    ? 'block' : 'none';
+  $('#tab-orders').style.display = name === 'orders' ? 'block' : 'none';
+
+  $$('.tab').forEach(x => {
+    const tabName = x.getAttribute('data-tab');
+    x.classList.toggle('active', tabName === name);
+  });
+}
+
+// Wire up all tabs in one go
+$$('.tab[data-tab]').forEach(t => {
+  t.addEventListener('click', () => {
     const name = t.getAttribute('data-tab');
-    if(!name) return;
-    $$('.tab').forEach(x=>x.classList.toggle('active', x===t));
-    $('#tab-active').style.display = name==='active'?'block':'none';
-    $('#tab-log').style.display = name==='log'?'block':'none';
+    if (name) showTab(name);
   });
 });
 
