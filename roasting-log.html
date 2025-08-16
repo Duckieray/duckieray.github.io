@@ -98,7 +98,15 @@
       <div class="field"><label>End Weight (g)</label><input id="d_endWeight" type="number" inputmode="decimal" /></div>
       <div class="field"><label>End Temp (°C)</label><input id="d_endTemp" type="number" inputmode="decimal" /></div>
 
-      <div class="field wide"><label>Notes</label><textarea id="d_notes" placeholder="Add notes, observations, changes..."></textarea></div>
+      <div class="field wide">
+        <label>Notes</label>
+        <textarea id="d_notes" placeholder="Add notes, observations, changes..."></textarea>
+      </div>
+
+      <div class="field wide">
+        <label>Control Events</label>
+        <div id="detailControls" class="hint"></div>
+      </div>
     </div>
 
     <div class="modal-actions">
@@ -185,6 +193,25 @@
           <label>End Temp (°C)</label>
           <input id="endTemp" type="number" inputmode="decimal" placeholder="enter temp" />
         </div>
+      </div>
+
+      <div class="card">
+        <h2>Controls</h2>
+        <div class="row">
+          <div class="field">
+            <label>Power</label>
+            <div class="btns" id="powerButtons"></div>
+          </div>
+          <div class="field">
+            <label>Fan</label>
+            <div class="btns" id="fanButtons"></div>
+          </div>
+          <div class="field">
+            <label>Drum</label>
+            <div class="btns" id="drumButtons"></div>
+          </div>
+        </div>
+        <div class="hint" id="currentControls">Current: –</div>
       </div>
 
       <div class="sticky-actions btns" style="margin-top:14px">
@@ -661,7 +688,8 @@ function newActive(){
     startTime: '', firstCrackTime: '', firstCrackTemp: '',
     secondCrackTime: '', secondCrackTemp: '',
     endTime: '', endWeight: '', endTemp: '',
-    orderId: null
+    orderId: null,
+    controlEvents: []
   };
   bindActiveToUI();
   document.getElementById('btnComplete')?.style && (document.getElementById('btnComplete').style.display = 'none'); // hide it
@@ -711,6 +739,41 @@ function updateDeltaHint(){
   }
 }
 
+function logControl(change) {
+  const evt = { time: nowISO(), ...change };
+  active.controlEvents.push(evt);
+  updateControlStatus();
+}
+
+function updateControlStatus() {
+  if (!active.controlEvents.length) {
+    $('#currentControls').textContent = "Current: –";
+    return;
+  }
+  const last = active.controlEvents[active.controlEvents.length - 1];
+  const parts = [];
+  if (last.P) parts.push(`P${last.P}`);
+  if (last.F) parts.push(`F${last.F}`);
+  if (last.D) parts.push(`D${last.D}`);
+  $('#currentControls').textContent = "Current: " + parts.join(" ");
+}
+
+function makeControlButtons(containerId, label, max, key) {
+  const c = document.getElementById(containerId);
+  for (let i=1; i<=max; i++) {
+    const b = document.createElement('button');
+    b.className = "btn small";
+    b.textContent = label + i;
+    b.onclick = () => logControl({ [key]: i });
+    c.appendChild(b);
+  }
+}
+
+// Generate buttons
+makeControlButtons("powerButtons","P",9,"P");
+makeControlButtons("fanButtons","F",9,"F");
+makeControlButtons("drumButtons","D",9,"D");
+
 function normalizeRoast(roast) {
   const normalized = { ...roast };
 
@@ -723,6 +786,9 @@ function normalizeRoast(roast) {
   for (const key of ['startWeight','chargeTemp','firstCrackTemp','secondCrackTemp','endWeight','endTemp']) {
     if (normalized[key] === "") normalized[key] = null;
   }
+
+  // ensure events is an array
+  if (!Array.isArray(normalized.controlEvents)) normalized.controlEvents = [];
 
   return normalized;
 }
@@ -925,6 +991,19 @@ function openDetail(roastId){
   setIf('d_endTemp', selectedRoast.endTemp);
   setIf('d_notes', selectedRoast.notes);
 
+  const evts = selectedRoast.controlEvents || [];
+  let listHtml = "<ul>";
+  for (const e of evts) {
+    const t = fmtTime(e.time);
+    const changes = [];
+    if (e.P) changes.push(`P${e.P}`);
+    if (e.F) changes.push(`F${e.F}`);
+    if (e.D) changes.push(`D${e.D}`);
+    listHtml += `<li>${t}: ${changes.join(" ")}</li>`;
+  }
+  listHtml += "</ul>";
+
+  M('detailControls').innerHTML = listHtml;
   M('detailModal').style.display = 'flex';
 }
 
