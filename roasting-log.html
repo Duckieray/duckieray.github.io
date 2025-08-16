@@ -251,7 +251,6 @@
 </div>
 
 <script>
-console.log("✅ Script started parsing");
 // ----- Supabase config -----
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
@@ -275,8 +274,6 @@ const authStatus = document.getElementById('authStatus');
 const btnSignIn  = document.getElementById('btnSignIn');
 const btnSignOut = document.getElementById('btnSignOut');
 const ordersTabButton = document.getElementById('orderQueueTab');
-
-console.log("✅ Tab setup code running");
 
 function showTab(name){
   document.getElementById('tab-active').style.display = name==='active' ? 'block' : 'none';
@@ -667,6 +664,7 @@ function newActive(){
     orderId: null
   };
   bindActiveToUI();
+  document.getElementById('btnComplete')?.style && (document.getElementById('btnComplete').style.display = 'none'); // hide it
   $('#status-pill').textContent = 'Ready';
   $('#deltaHint').textContent = '';
 }
@@ -736,9 +734,7 @@ $('#btnEnd').onclick = () => {
 };
 $('#btnReset').onclick = () => newActive();
 
-console.log("btnSave is:", $('#btnSave'));
 $('#btnSave').onclick = async () => {
-  console.log("btnSave clicked");
   if (!active.startTime) { 
     alert('Tap Start to begin the roast.'); 
     return; 
@@ -916,64 +912,45 @@ function openDetail(roastId){
   M('detailModal').style.display = 'flex';
 }
 
-function safeTime(fieldId, previousValue) {
-  const val = getVal(fieldId);
-  console.log(`⏱ safeTime(${fieldId}): input=`, val, "prev=", previousValue);
-
-  if (!val) return previousValue ?? null;
-  if (val.trim() === "") return null;
-
-  const parsed = isoFromFlexible(val);
-  console.log(`⏱ parsed=`, parsed);
-  return parsed || previousValue || null;
+function normalizeRoast(roast) {
+  const normalized = { ...roast };
+  for (const key of ['startTime', 'firstCrackTime', 'secondCrackTime', 'endTime']) {
+    if (normalized[key] === "") normalized[key] = null;
+  }
+  for (const key of ['startWeight', 'chargeTemp', 'firstCrackTemp', 'secondCrackTemp', 'endWeight', 'endTemp']) {
+    if (normalized[key] === "") normalized[key] = null;
+  }
+  return normalized;
 }
 
-function safeNumber(fieldId, previousValue) {
-  const val = getVal(fieldId);
-  console.log(`🔢 safeNumber(${fieldId}): input=`, val, "prev=", previousValue);
-
-  if (!val) return previousValue ?? null;
-  if (val.trim() === "") return null;
-
-  const num = Number(val);
-  console.log(`🔢 parsed=`, num);
-  return isNaN(num) ? (previousValue ?? null) : num;
-}
-
-async function saveDetail() {
-  console.log("✅ saveDetail function defined");
-
+async function saveDetail(){
   if (!selectedRoast) return;
+  selectedRoast.date = getVal('d_date');
+  selectedRoast.roaster = getVal('d_roaster');
+  selectedRoast.bean = getVal('d_bean');
+  selectedRoast.profile = getVal('d_profile');
+  selectedRoast.startWeight = getVal('d_startWeight');
+  selectedRoast.chargeTemp = getVal('d_chargeTemp');
 
-  console.log("🔍 BEFORE SAVE:", JSON.stringify(selectedRoast, null, 2));
+  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || selectedRoast.startTime || '';
+  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || selectedRoast.firstCrackTime || '';
+  selectedRoast.firstCrackTemp = getVal('d_firstCrackTemp');
+  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || selectedRoast.secondCrackTime || '';
+  selectedRoast.secondCrackTemp = getVal('d_secondCrackTemp');
+  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || selectedRoast.endTime || '';
+  selectedRoast.endWeight = getVal('d_endWeight');
+  selectedRoast.endTemp = getVal('d_endTemp');
+  selectedRoast.notes = getVal('d_notes');
 
-  selectedRoast.date           = getVal('d_date')      || selectedRoast.date      || null;
-  selectedRoast.roaster        = getVal('d_roaster')   || selectedRoast.roaster   || null;
-  selectedRoast.bean           = getVal('d_bean')      || selectedRoast.bean      || null;
-  selectedRoast.profile        = getVal('d_profile')   || selectedRoast.profile   || null;
-
-  selectedRoast.startWeight    = safeNumber('d_startWeight', selectedRoast.startWeight);
-  selectedRoast.chargeTemp     = safeNumber('d_chargeTemp', selectedRoast.chargeTemp);
-
-  selectedRoast.startTime      = safeTime('d_startTime', selectedRoast.startTime);
-  selectedRoast.firstCrackTime = safeTime('d_firstCrackTime', selectedRoast.firstCrackTime);
-  selectedRoast.firstCrackTemp = safeNumber('d_firstCrackTemp', selectedRoast.firstCrackTemp);
-  selectedRoast.secondCrackTime= safeTime('d_secondCrackTime', selectedRoast.secondCrackTime);
-  selectedRoast.secondCrackTemp= safeNumber('d_secondCrackTemp', selectedRoast.secondCrackTemp);
-  selectedRoast.endTime        = safeTime('d_endTime', selectedRoast.endTime);
-  selectedRoast.endWeight      = safeNumber('d_endWeight', selectedRoast.endWeight);
-  selectedRoast.endTemp        = safeNumber('d_endTemp', selectedRoast.endTemp);
-
-  selectedRoast.notes          = getVal('d_notes') || selectedRoast.notes || null;
-
-  console.log("✅ AFTER SAVE:", JSON.stringify(selectedRoast, null, 2));
-
-  await db.put(selectedRoast);
+  await db.put(normalizeRoast(selectedRoast));
   allRoasts = await db.all();
   renderTable();
+  M('status-pill').textContent = `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+}
 
-  M('status-pill').textContent =
-    `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+function closeDetail(){
+  M('detailModal').style.display = 'none';
+  selectedRoast = null;
 }
 
 // Wire modal buttons
