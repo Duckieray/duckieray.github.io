@@ -937,7 +937,9 @@ async function saveDetail() {
 
   selectedRoast.notes           = asNull(getVal('d_notes'));
 
-  await db.put(selectedRoast);  // no need for normalizeRoast anymore
+  console.log("💾 about to db.put", JSON.stringify(selectedRoast, null, 2));
+
+  await db.put(selectedRoast);
   allRoasts = await db.all();
   renderTable();
   M('status-pill').textContent =
