@@ -866,19 +866,22 @@ const M = (id) => document.getElementById(id);
 const setIf = (id, v) => { const el=M(id); if (el) el.value = v ?? ''; };
 const getVal = (id) => (M(id)?.value ?? '').trim();
 
-function isoFromFlexible(input){
-  const v = (input||'').trim();
-  if (!v) return null;  // instead of ""
+function isoFromFlexible(input) {
+  const v = (input || '').trim();
+  if (!v) return null;
+
   if (!isNaN(Date.parse(v))) return new Date(v).toISOString();
+
   const hhmm = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
   const m = v.match(hhmm);
-  if (m){
+  if (m) {
     const d = new Date();
     d.setHours(parseInt(m[1],10), parseInt(m[2],10), parseInt(m[3]||'0',10), 0);
     return d.toISOString();
   }
+
   const d = new Date(v);
-  return isNaN(d) ? null : d.toISOString();  // instead of ""
+  return isNaN(d) ? null : d.toISOString();
 }
 
 function openDetail(roastId){
@@ -908,52 +911,37 @@ function openDetail(roastId){
   M('detailModal').style.display = 'flex';
 }
 
-function normalizeRoast(roast) {
-  const normalized = { ...roast };
-
-  // Empty string → null
-  for (const key of [
-    'startWeight','chargeTemp','firstCrackTemp',
-    'secondCrackTemp','endWeight','endTemp'
-  ]) {
-    if (!normalized[key]) normalized[key] = null;
-  }
-
-  // Invalid or empty times → null
-  for (const key of ['startTime','firstCrackTime','secondCrackTime','endTime']) {
-    if (!normalized[key] || normalized[key] === '') {
-      normalized[key] = null;
-    }
-  }
-
-  return normalized;
-}
-
-async function saveDetail(){
+async function saveDetail() {
   if (!selectedRoast) return;
-  selectedRoast.date = getVal('d_date');
-  selectedRoast.roaster = getVal('d_roaster');
-  selectedRoast.bean = getVal('d_bean');
-  selectedRoast.profile = getVal('d_profile');
 
-  selectedRoast.startTime = isoFromFlexible(getVal('d_startTime')) || null;
-  selectedRoast.firstCrackTime = isoFromFlexible(getVal('d_firstCrackTime')) || null;
-  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime')) || null;
-  selectedRoast.endTime = isoFromFlexible(getVal('d_endTime')) || null;
+  function asNull(val) {
+    return val === "" ? null : val;
+  }
 
-  selectedRoast.startWeight   = getVal('d_startWeight')   || null;
-  selectedRoast.chargeTemp    = getVal('d_chargeTemp')    || null;
-  selectedRoast.firstCrackTemp= getVal('d_firstCrackTemp')|| null;
-  selectedRoast.secondCrackTemp= getVal('d_secondCrackTemp')|| null;
-  selectedRoast.endWeight     = getVal('d_endWeight')     || null;
-  selectedRoast.endTemp       = getVal('d_endTemp')       || null;
+  selectedRoast.date     = asNull(getVal('d_date'));
+  selectedRoast.roaster  = asNull(getVal('d_roaster'));
+  selectedRoast.bean     = asNull(getVal('d_bean'));
+  selectedRoast.profile  = asNull(getVal('d_profile'));
 
-  selectedRoast.notes = getVal('d_notes');
+  selectedRoast.startTime       = isoFromFlexible(getVal('d_startTime'));
+  selectedRoast.firstCrackTime  = isoFromFlexible(getVal('d_firstCrackTime'));
+  selectedRoast.secondCrackTime = isoFromFlexible(getVal('d_secondCrackTime'));
+  selectedRoast.endTime         = isoFromFlexible(getVal('d_endTime'));
 
-  await db.put(normalizeRoast(selectedRoast));
+  selectedRoast.startWeight     = asNull(getVal('d_startWeight'));
+  selectedRoast.chargeTemp      = asNull(getVal('d_chargeTemp'));
+  selectedRoast.firstCrackTemp  = asNull(getVal('d_firstCrackTemp'));
+  selectedRoast.secondCrackTemp = asNull(getVal('d_secondCrackTemp'));
+  selectedRoast.endWeight       = asNull(getVal('d_endWeight'));
+  selectedRoast.endTemp         = asNull(getVal('d_endTemp'));
+
+  selectedRoast.notes           = asNull(getVal('d_notes'));
+
+  await db.put(selectedRoast);  // no need for normalizeRoast anymore
   allRoasts = await db.all();
   renderTable();
-  M('status-pill').textContent = `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+  M('status-pill').textContent =
+    `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
 }
 
 function closeDetail(){
