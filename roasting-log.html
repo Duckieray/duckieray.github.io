@@ -251,6 +251,7 @@
 </div>
 
 <script>
+console.log("✅ Script started parsing");
 // ----- Supabase config -----
 const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
@@ -274,6 +275,8 @@ const authStatus = document.getElementById('authStatus');
 const btnSignIn  = document.getElementById('btnSignIn');
 const btnSignOut = document.getElementById('btnSignOut');
 const ordersTabButton = document.getElementById('orderQueueTab');
+
+console.log("✅ Tab setup code running");
 
 function showTab(name){
   document.getElementById('tab-active').style.display = name==='active' ? 'block' : 'none';
@@ -937,6 +940,8 @@ function safeNumber(fieldId, previousValue) {
 }
 
 async function saveDetail() {
+  console.log("✅ saveDetail function defined");
+
   if (!selectedRoast) return;
 
   console.log("🔍 BEFORE SAVE:", JSON.stringify(selectedRoast, null, 2));
