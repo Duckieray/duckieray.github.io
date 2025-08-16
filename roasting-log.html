@@ -711,6 +711,22 @@ function updateDeltaHint(){
   }
 }
 
+function normalizeRoast(roast) {
+  const normalized = { ...roast };
+
+  // times
+  for (const key of ['startTime','firstCrackTime','secondCrackTime','endTime']) {
+    if (normalized[key] === "") normalized[key] = null;
+  }
+
+  // numbers
+  for (const key of ['startWeight','chargeTemp','firstCrackTemp','secondCrackTemp','endWeight','endTemp']) {
+    if (normalized[key] === "") normalized[key] = null;
+  }
+
+  return normalized;
+}
+
 /* ---------- buttons ---------- */
 $('#btnStart').onclick = () => {
   active.startTime = nowISO();
@@ -735,17 +751,20 @@ $('#btnEnd').onclick = () => {
 $('#btnReset').onclick = () => newActive();
 
 $('#btnSave').onclick = async () => {
-  if (!active.startTime) { 
-    alert('Tap Start to begin the roast.'); 
-    return; 
+  if (!active.startTime) {
+    alert('Tap Start to begin the roast.');
+    return;
   }
+
   try {
-    // 1. Save roast locally
-    await db.put(active);
+    // 1. Normalize before saving
+    const roastToSave = normalizeRoast(active);
+
+    await db.put(roastToSave);
     allRoasts = await db.all();
     renderTable();
 
-    // 2. Mark linked order as completed in Supabase (if applicable)
+    // 2. Mark linked order as completed
     if (active.orderId) {
       const { error } = await supabase
         .from('order_queue')
@@ -760,16 +779,14 @@ $('#btnSave').onclick = async () => {
     }
 
     // 3. Update UI status pill
-    const pill = document.getElementById('status-pill');
-    pill.textContent = `Saved ${active.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
+    $('#status-pill').textContent =
+      `Saved ${active.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
 
-    // 4. Reset active roast
+    // 4. Reset
     newActive();
 
-    // 5. Optional: refresh orders list immediately
-    if (typeof loadOrders === 'function') {
-      loadOrders();
-    }
+    // 5. Refresh orders list
+    if (typeof loadOrders === 'function') loadOrders();
 
   } catch (err) {
     alert(
@@ -936,8 +953,6 @@ async function saveDetail() {
   selectedRoast.endTemp         = asNull(getVal('d_endTemp'));
 
   selectedRoast.notes           = asNull(getVal('d_notes'));
-
-  console.log("💾 about to db.put", JSON.stringify(selectedRoast, null, 2));
 
   await db.put(selectedRoast);
   allRoasts = await db.all();
