@@ -667,7 +667,6 @@ function newActive(){
     orderId: null
   };
   bindActiveToUI();
-  document.getElementById('btnComplete')?.style && (document.getElementById('btnComplete').style.display = 'none'); // hide it
   $('#status-pill').textContent = 'Ready';
   $('#deltaHint').textContent = '';
 }
@@ -737,7 +736,9 @@ $('#btnEnd').onclick = () => {
 };
 $('#btnReset').onclick = () => newActive();
 
+console.log("btnSave is:", $('#btnSave'));
 $('#btnSave').onclick = async () => {
+  console.log("btnSave clicked");
   if (!active.startTime) { 
     alert('Tap Start to begin the roast.'); 
     return; 
