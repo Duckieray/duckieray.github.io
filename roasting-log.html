@@ -914,41 +914,32 @@ function openDetail(roastId){
 
 function safeTime(fieldId, previousValue) {
   const val = getVal(fieldId);
+  console.log(`⏱ safeTime(${fieldId}): input=`, val, "prev=", previousValue);
 
-  if (val === undefined || val === null) {
-    // No input element or undefined → just keep old value
-    return previousValue ?? null;
-  }
-
-  if (val.trim() === "") {
-    // User cleared field → null
-    return null;
-  }
+  if (!val) return previousValue ?? null;
+  if (val.trim() === "") return null;
 
   const parsed = isoFromFlexible(val);
-  if (parsed) return parsed;
-
-  // Parsing failed → keep old value
-  return previousValue ?? null;
+  console.log(`⏱ parsed=`, parsed);
+  return parsed || previousValue || null;
 }
 
 function safeNumber(fieldId, previousValue) {
   const val = getVal(fieldId);
+  console.log(`🔢 safeNumber(${fieldId}): input=`, val, "prev=", previousValue);
 
-  if (val === undefined || val === null) {
-    return previousValue ?? null;
-  }
-
-  if (val.trim() === "") {
-    return null; // explicit clear
-  }
+  if (!val) return previousValue ?? null;
+  if (val.trim() === "") return null;
 
   const num = Number(val);
+  console.log(`🔢 parsed=`, num);
   return isNaN(num) ? (previousValue ?? null) : num;
 }
 
 async function saveDetail() {
   if (!selectedRoast) return;
+
+  console.log("🔍 BEFORE SAVE:", JSON.stringify(selectedRoast, null, 2));
 
   selectedRoast.date           = getVal('d_date')      || selectedRoast.date      || null;
   selectedRoast.roaster        = getVal('d_roaster')   || selectedRoast.roaster   || null;
@@ -969,9 +960,12 @@ async function saveDetail() {
 
   selectedRoast.notes          = getVal('d_notes') || selectedRoast.notes || null;
 
+  console.log("✅ AFTER SAVE:", JSON.stringify(selectedRoast, null, 2));
+
   await db.put(selectedRoast);
   allRoasts = await db.all();
   renderTable();
+
   M('status-pill').textContent =
     `Saved ${selectedRoast.id} • Storage: ${storageMode} • Records: ${allRoasts.length}`;
 }
