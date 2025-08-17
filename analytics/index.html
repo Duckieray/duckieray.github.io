@@ -1,202 +1,210 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Roast Analytics</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js"></script>
   <style>
     :root {
       --bg:#0f1115; --card:#151823; --muted:#8b92a6;
       --text:#e8ecf3; --accent:#5cc8ff; --accent2:#52d39b;
     }
-    body { margin:0; background:var(--bg); color:var(--text);
-           font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; }
-    .wrap { max-width:1100px; margin:0 auto; padding:20px; }
-    h1 { margin-bottom:20px; }
-    .filter-bar {
-      margin: 20px 0;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-    }
-    select, input[type="date"] {
-      background: var(--card);
-      color: var(--text);
-      border: 1px solid var(--muted);
-      border-radius: 6px;
-      padding: 6px 10px;
-    }
-    .chart-card {
-      background: var(--card);
-      border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 20px;
-    }
-    canvas { width: 100% !important; height: 400px !important; }
+    body {margin:0;background:var(--bg);color:var(--text);font-family:system-ui; }
+    .wrap {max-width:1100px;margin:0 auto;padding:20px;}
+    h1 {margin-bottom:20px;}
+    .controls {margin-bottom:20px;display:flex;gap:10px;align-items:center;}
+    .controls label {font-weight:600;}
+    select,input {padding:6px 10px;border-radius:6px;border:1px solid var(--muted);background:var(--card);color:var(--text);}
     button {
-      background: var(--accent);
-      color: var(--bg);
-      border: none;
-      border-radius: 6px;
-      padding: 6px 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
+      background: var(--accent); color: var(--bg);
+      border: none; border-radius: 6px;
+      padding: 6px 14px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s;
     }
-    button:hover {
-      background: var(--accent2);
-    }
-    button:disabled {
-      background: var(--muted);
-      cursor: not-allowed;
-    }
-
+    button:hover { background: var(--accent2); }
+    button:disabled { background: var(--muted); cursor:not-allowed; }
+    .chart-card {background:var(--card);padding:16px;margin-bottom:20px;border-radius:12px;}
   </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Roast Analytics</h1>
+  <div class="wrap">
+    <h1>Roast Analytics</h1>
 
-  <!-- Filters -->
-  <div class="filter-bar">
-    <label for="beanFilter">Bean:</label>
-    <select id="beanFilter"></select>
+    <div class="controls">
+      <label>Bean:
+        <select id="beanSelect"></select>
+      </label>
+      <label>From: <input type="date" id="fromDate"></label>
+      <label>To: <input type="date" id="toDate"></label>
+      <button id="applyFilters">Apply</button>
+    </div>
 
-    <label for="fromDate">From:</label>
-    <input type="date" id="fromDate" />
-
-    <label for="toDate">To:</label>
-    <input type="date" id="toDate" />
-
-    <button id="applyFilters">Apply</button>
+    <div class="chart-card"><canvas id="beanAveragesChart"></canvas></div>
+    <div class="chart-card"><canvas id="weightVsDevChart"></canvas></div>
+    <div class="chart-card"><canvas id="roastsPerDayChart"></canvas></div>
+    <div class="chart-card"><canvas id="roastLevelChart"></canvas></div>
+    <div class="chart-card"><canvas id="tempsChart"></canvas></div>
+    <div class="chart-card"><canvas id="controlEventsChart"></canvas></div>
   </div>
 
-  <!-- Charts -->
-  <div class="chart-card"><canvas id="beanAverages"></canvas></div>
-  <div class="chart-card"><canvas id="weightLossVsDev"></canvas></div>
-  <div class="chart-card"><canvas id="calendarHeatmap"></canvas></div>
-</div>
+<script>
+const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script type="module">
-  import { createClient } from "https://esm.sh/@supabase/supabase-js";
+let charts = {};
 
-  const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
-  const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+async function loadBeans() {
+  const { data, error } = await supabase.from("roasting_log").select("bean");
+  if (error) { console.error(error); return; }
+  const beans = [...new Set(data.map(r => r.bean).filter(Boolean))];
+  const select = document.getElementById("beanSelect");
+  select.innerHTML = `<option value="">All</option>` +
+    beans.map(b => `<option value="${b}">${b}</option>`).join("");
+}
 
-  // --- AUTH HANDLING ---
-  let { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    const { data } = await new Promise(resolve => {
-      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-        resolve({ data: { session } });
-        listener.subscription.unsubscribe();
+async function loadData() {
+  let query = supabase.from("roasting_log").select("*");
+  const bean = document.getElementById("beanSelect").value;
+  const from = document.getElementById("fromDate").value;
+  const to = document.getElementById("toDate").value;
+  if (bean) query = query.eq("bean", bean);
+  if (from) query = query.gte("date", from);
+  if (to) query = query.lte("date", to);
+
+  const { data, error } = await query;
+  if (error) { console.error(error); return []; }
+  return data.filter(r => r.startTime && r.endTime);
+}
+
+function parseNum(val) {
+  const n = parseFloat(val);
+  return isNaN(n) ? null : n;
+}
+function minutesBetween(start, end) {
+  return (new Date(end) - new Date(start)) / 60000;
+}
+function updateCharts(rows) {
+  // Cleanup old charts
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+
+  if (!rows.length) return;
+
+  // Bean Averages
+  const grouped = {};
+  rows.forEach(r => {
+    if (!r.bean) return;
+    const roastTime = minutesBetween(r.startTime, r.endTime);
+    const fcTime = r.firstCrackTime ? minutesBetween(r.startTime, r.firstCrackTime) : null;
+    const devPerc = (fcTime && roastTime) ? ((roastTime-fcTime)/roastTime*100) : null;
+    if(!grouped[r.bean]) grouped[r.bean] = {roastTimes:[],devs:[]};
+    if(roastTime) grouped[r.bean].roastTimes.push(roastTime);
+    if(devPerc) grouped[r.bean].devs.push(devPerc);
+  });
+  const beanLabels = Object.keys(grouped);
+  const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+  charts.beanAverages = new Chart(beanAveragesChart, {
+    type:"bar",
+    data:{
+      labels: beanLabels,
+      datasets:[
+        {label:"Avg Roast Time (min)", data:beanLabels.map(b=>avg(grouped[b].roastTimes)||0), backgroundColor:"#5cc8ff"},
+        {label:"Avg Dev %", data:beanLabels.map(b=>avg(grouped[b].devs)||0), backgroundColor:"#52d39b"}
+      ]
+    }
+  });
+
+  // Weight loss vs Dev%
+  const scatterData = rows.map(r=>{
+    const start = parseNum(r.startWeight);
+    const end = parseNum(r.endWeight);
+    if(!start||!end||!r.firstCrackTime) return null;
+    const wl = (start-end)/start*100;
+    const roastTime = minutesBetween(r.startTime, r.endTime);
+    const fcTime = minutesBetween(r.startTime, r.firstCrackTime);
+    const dev = (roastTime && fcTime)?((roastTime-fcTime)/roastTime*100):null;
+    if(dev==null) return null;
+    return {x:dev,y:wl};
+  }).filter(Boolean);
+  charts.weightVsDev = new Chart(weightVsDevChart, {
+    type:"scatter",
+    data:{datasets:[{label:"Roasts",data:scatterData,backgroundColor:"#ffb656"}]},
+    options:{scales:{x:{title:{text:"Dev %",display:true}},y:{title:{text:"Weight Loss %",display:true}}}}
+  });
+
+  // Roasts per Day
+  const perDay={};
+  rows.forEach(r=>{
+    const d = r.date;
+    if(d) perDay[d]=(perDay[d]||0)+1;
+  });
+  charts.roastsPerDay = new Chart(roastsPerDayChart,{
+    type:"line",
+    data:{labels:Object.keys(perDay),datasets:[{label:"Roasts",data:Object.values(perDay),borderColor:"#ccc"}]}
+  });
+
+  // Roast Level distribution
+  const levelCounts={};
+  rows.forEach(r=>{
+    if(r.profile) levelCounts[r.profile]=(levelCounts[r.profile]||0)+1;
+  });
+  charts.roastLevel = new Chart(roastLevelChart,{
+    type:"bar",
+    data:{labels:Object.keys(levelCounts),datasets:[{label:"Roasts",data:Object.values(levelCounts),backgroundColor:"#ff6b6b"}]}
+  });
+
+  // Charge & FC temps
+  const temps={};
+  rows.forEach(r=>{
+    if(!r.bean) return;
+    const charge=parseNum(r.chargeTemp);
+    const fc=parseNum(r.firstCrackTemp);
+    if(!temps[r.bean]) temps[r.bean]={charges:[],fcs:[]};
+    if(charge) temps[r.bean].charges.push(charge);
+    if(fc) temps[r.bean].fcs.push(fc);
+  });
+  charts.temps = new Chart(tempsChart,{
+    type:"bar",
+    data:{
+      labels:Object.keys(temps),
+      datasets:[
+        {label:"Avg Charge Temp",data:Object.keys(temps).map(b=>avg(temps[b].charges)||0),backgroundColor:"#8b92a6"},
+        {label:"Avg FC Temp",data:Object.keys(temps).map(b=>avg(temps[b].fcs)||0),backgroundColor:"#5cc8ff"}
+      ]
+    }
+  });
+
+  // Control Events timeline
+  const events=[];
+  rows.forEach(r=>{
+    if(Array.isArray(r.controlEvents)){
+      r.controlEvents.forEach(e=>{
+        events.push({time:new Date(e.time), val: Object.entries(e)[0]});
       });
-    });
-    session = data.session;
-  }
-  if (!session) {
-    document.body.innerHTML = "<div class='wrap'><h2>Please log in via the Roasting Log app first.</h2></div>";
-    throw new Error("No session");
-  }
-
-  // --- FILTER UI ---
-  const beanSelect = document.getElementById("beanFilter");
-  const fromDateInput = document.getElementById("fromDate");
-  const toDateInput = document.getElementById("toDate");
-  const applyBtn = document.getElementById("applyFilters");
-
-  async function loadBeanFilter(){
-    const { data, error } = await supabase.from("roasting_log").select("bean");
-    if(error){ console.error(error); return; }
-    const uniqueBeans = [...new Set(data.map(r => r.bean).filter(Boolean))];
-    beanSelect.innerHTML = "<option value=''>All Beans</option>" + 
-      uniqueBeans.map(b => `<option value="${b}">${b}</option>`).join("");
-  }
-
-  applyBtn.addEventListener("click", ()=> {
-    fetchAndRender(beanSelect.value, fromDateInput.value, toDateInput.value);
-  });
-
-  // --- FETCH + RENDER ---
-  async function fetchAndRender(bean, fromDate, toDate){
-    let query = supabase.from("roasting_log").select("*");
-    if(bean) query = query.eq("bean", bean);
-    if(fromDate) query = query.gte("roast_date", fromDate);
-    if(toDate) query = query.lte("roast_date", toDate);
-
-    const { data, error } = await query;
-    if(error){ console.error(error); return; }
-
-    renderCharts(data);
-  }
-
-  // --- CHART RENDERERS ---
-  function renderCharts(roasts){
-    // Destroy existing if any
-    if(window.beanAveragesChart) window.beanAveragesChart.destroy();
-    if(window.weightLossChart) window.weightLossChart.destroy();
-    if(window.calendarChart) window.calendarChart.destroy();
-
-    // 1. Bean averages
-    const grouped = {};
-    for(const r of roasts){
-      if(!grouped[r.bean]) grouped[r.bean] = [];
-      grouped[r.bean].push(r);
     }
-    const labels = Object.keys(grouped);
-    const avgTimes = labels.map(b => avg(grouped[b].map(r => r.roast_time)));
-    const avgDev = labels.map(b => avg(grouped[b].map(r => r.dev_percent)));
-    window.beanAveragesChart = new Chart(document.getElementById("beanAverages"), {
-      type:"bar",
-      data:{
-        labels,
-        datasets:[
-          { label:"Avg Roast Time (s)", data:avgTimes, backgroundColor: "#5cc8ff" },
-          { label:"Avg Dev %", data:avgDev, backgroundColor: "#52d39b" }
-        ]
-      },
-      options:{ responsive:true, plugins:{ title:{ display:true, text:"Bean Averages" } } }
-    });
-
-    // 2. Weight loss vs dev scatter
-    const scatterData = roasts.map(r=>({x:r.dev_percent,y:r.weight_loss}));
-    window.weightLossChart = new Chart(document.getElementById("weightLossVsDev"), {
-      type:"scatter",
-      data:{ datasets:[{ label:"Roasts", data:scatterData, backgroundColor:"#ffb656" }]},
-      options:{ plugins:{ title:{ display:true, text:"Weight Loss vs Dev%" } } }
-    });
-
-    // 3. Calendar heatmap (simplified bar per day)
-    const perDay = {};
-    for(const r of roasts){
-      const d = r.roast_date?.split("T")[0];
-      if(!d) continue;
-      perDay[d] = (perDay[d]||0)+1;
-    }
-    const calLabels = Object.keys(perDay).sort();
-    const calCounts = calLabels.map(d=>perDay[d]);
-    window.calendarChart = new Chart(document.getElementById("calendarHeatmap"), {
-      type:"bar",
-      data:{ labels:calLabels, datasets:[{ label:"Roasts", data:calCounts, backgroundColor:"#8b92a6" }] },
-      options:{ plugins:{ title:{ display:true, text:"Roasts per Day" } } }
-    });
-  }
-
-  function avg(arr){
-    return arr.length ? arr.reduce((a,b)=>a+(b||0),0)/arr.length : 0;
-  }
-
-  // --- INIT ---
-  await loadBeanFilter();
-  await fetchAndRender(); // initial load (all beans, all time)
-
-  // --- Cleanup ---
-  window.addEventListener("beforeunload", () => {
-    supabase.removeAllChannels();
   });
+  charts.controlEvents = new Chart(controlEventsChart,{
+    type:"line",
+    data:{
+      labels:events.map(e=>e.time.toLocaleString()),
+      datasets:[{
+        label:"Events",
+        data:events.map(e=> e.val[1]),
+        borderColor:"#52d39b"
+      }]
+    }
+  });
+}
+
+document.getElementById("applyFilters").addEventListener("click",async()=>{
+  const rows=await loadData();
+  updateCharts(rows);
+});
+
+loadBeans().then(loadData).then(updateCharts);
 </script>
 </body>
 </html>
