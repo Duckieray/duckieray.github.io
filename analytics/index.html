@@ -99,11 +99,24 @@
 
     async function main(){
       // use existing session if logged in
-      const { data: { session } } = await supabase.auth.getSession();
-      if(!session){
-        document.body.innerHTML = "<div class='wrap'><h2>Please log in via the Roasting Log app first.</h2></div>";
-        return;
+      let { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+      // Wait for Supabase to rehydrate session from localStorage
+      const { data } = await new Promise(resolve => {
+          const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+          resolve({ data: { session } });
+          listener.subscription.unsubscribe(); // clean up listener
+          });
+      });
+      session = data.session;
       }
+
+      if (!session) {
+      document.body.innerHTML = "<div class='wrap'><h2>Please log in via the Roasting Log app first.</h2></div>";
+      return;
+      }
+
 
       const { data: roasts, error } = await supabase
         .from("roasting_log")
