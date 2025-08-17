@@ -121,6 +121,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="active">Active Roast</button>
     <button class="tab" data-tab="log">Roast Log</button>
+    <a href="analytics/index.html" target="_blank" class="tab">Analytics</a>
     <span class="pill" id="status-pill">Ready</span>
     <div class="right split">
       <button class="tab btn small" id="orderQueueTab">Order Queue</button>
@@ -692,7 +693,6 @@ function newActive(){
     controlEvents: []
   };
   bindActiveToUI();
-  document.getElementById('btnComplete')?.style && (document.getElementById('btnComplete').style.display = 'none'); // hide it
   $('#status-pill').textContent = 'Ready';
   $('#deltaHint').textContent = '';
 }
