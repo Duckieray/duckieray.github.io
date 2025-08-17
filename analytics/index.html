@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Roasting Analytics</title>
+  <title>Roast Analytics</title>
   <style>
     :root {
       --bg:#0f1115; --card:#151823; --muted:#8b92a6;
@@ -12,212 +12,173 @@
     body { margin:0; background:var(--bg); color:var(--text);
            font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; }
     .wrap { max-width:1100px; margin:0 auto; padding:20px; }
-    h1 { margin-bottom:1rem; }
+    h1 { margin-bottom:20px; }
+    .filter-bar {
+      margin: 20px 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    select, input[type="date"] {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--muted);
+      border-radius: 6px;
+      padding: 6px 10px;
+    }
     .chart-card {
-      background:var(--card); padding:20px; margin-bottom:20px;
-      border-radius:12px; box-shadow:0 2px 6px rgba(0,0,0,0.4);
+      background: var(--card);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
     }
-    .actions { margin-bottom:8px; }
-    .actions button {
-      margin-right:6px; padding:4px 10px; border:none;
-      border-radius:6px; background:var(--accent); color:#fff;
-      cursor:pointer; font-size:0.85rem;
-    }
-    .actions button:hover { background:var(--accent2); }
-    canvas { max-width:100%; }
+    canvas { width: 100% !important; height: 400px !important; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>📊 Roast Analytics</h1>
+<div class="wrap">
+  <h1>Roast Analytics</h1>
 
-    <div class="chart-card">
-      <h2>Roast Time Trend</h2>
-      <div class="actions" data-chart="roastTimeTrend"></div>
-      <canvas id="roastTimeTrend"></canvas>
-    </div>
+  <!-- Filters -->
+  <div class="filter-bar">
+    <label for="beanFilter">Bean:</label>
+    <select id="beanFilter"></select>
 
-    <div class="chart-card">
-      <h2>Development % Trend</h2>
-      <div class="actions" data-chart="devPctTrend"></div>
-      <canvas id="devPctTrend"></canvas>
-    </div>
+    <label for="fromDate">From:</label>
+    <input type="date" id="fromDate" />
 
-    <div class="chart-card">
-      <h2>Bean Averages</h2>
-      <div class="actions" data-chart="beanAverages"></div>
-      <canvas id="beanAverages"></canvas>
-    </div>
+    <label for="toDate">To:</label>
+    <input type="date" id="toDate" />
 
-    <div class="chart-card">
-      <h2>Control Events (last roast)</h2>
-      <div class="actions" data-chart="controlEventsChart"></div>
-      <canvas id="controlEventsChart"></canvas>
-    </div>
+    <button id="applyFilters">Apply</button>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script type="module">
-    import { createClient } from "https://esm.sh/@supabase/supabase-js";
+  <!-- Charts -->
+  <div class="chart-card"><canvas id="beanAverages"></canvas></div>
+  <div class="chart-card"><canvas id="weightLossVsDev"></canvas></div>
+  <div class="chart-card"><canvas id="calendarHeatmap"></canvas></div>
+</div>
 
-    const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
-    const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-    // Export helpers
-    function downloadChartPNG(chartRef, filename){
-      const url = chartRef.toBase64Image();
-      const a = document.createElement("a");
-      a.href = url; a.download = filename; a.click();
-    }
-    function downloadChartCSV(chartRef, filename){
-      const labels = chartRef.data.labels || [];
-      const datasets = chartRef.data.datasets || [];
-      let csv = "Label," + datasets.map(d=>d.label).join(",") + "\n";
-      labels.forEach((label,i)=>{
-        csv += label + "," + datasets.map(d=>d.data[i]??"").join(",") + "\n";
+  const SUPABASE_URL = "https://spdzolnriqpyoupnwdvq.supabase.co";
+  const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwZHpvbG5yaXFweW91cG53ZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMjU4NTUsImV4cCI6MjA3MDYwMTg1NX0.uYH2jwqCGCqW5Qo7FpuwQg6Z7kPbotVuLpjJm8xA-3M";
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+  // --- AUTH HANDLING ---
+  let { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    const { data } = await new Promise(resolve => {
+      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+        resolve({ data: { session } });
+        listener.subscription.unsubscribe();
       });
-      const blob = new Blob([csv], { type:"text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    function addExportButtons(chartName, chartRef){
-      const actionsDiv = document.querySelector(`.actions[data-chart="${chartName}"]`);
-      if(!actionsDiv) return;
-      const pngBtn = document.createElement("button");
-      pngBtn.textContent = "📥 PNG";
-      pngBtn.onclick = ()=>downloadChartPNG(chartRef, chartName+".png");
-      const csvBtn = document.createElement("button");
-      csvBtn.textContent = "📥 CSV";
-      csvBtn.onclick = ()=>downloadChartCSV(chartRef, chartName+".csv");
-      actionsDiv.appendChild(pngBtn);
-      actionsDiv.appendChild(csvBtn);
-    }
-
-    async function main(){
-      // use existing session if logged in
-      let { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-      // Wait for Supabase to rehydrate session from localStorage
-      const { data } = await new Promise(resolve => {
-          const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-          resolve({ data: { session } });
-          listener.subscription.unsubscribe(); // clean up listener
-          });
-      });
-      session = data.session;
-      }
-
-      if (!session) {
-      document.body.innerHTML = "<div class='wrap'><h2>Please log in via the Roasting Log app first.</h2></div>";
-      return;
-      }
-
-
-      const { data: roasts, error } = await supabase
-        .from("roasting_log")
-        .select("*")
-        .order("date",{ ascending:true });
-
-      if(error){ console.error(error); return; }
-
-      // compute roast_time & dev_pct
-      roasts.forEach(r=>{
-        if(r.startTime && r.endTime){
-          r.roast_time = (r.endTime - r.startTime);
-        }
-        if(r.startTime && r.firstCrackTime && r.endTime){
-          r.dev_pct = ((r.endTime - r.firstCrackTime) / (r.endTime - r.startTime))*100;
-        }
-      });
-
-      // Chart 1: Roast Time Trend
-      const ctx1 = document.getElementById("roastTimeTrend");
-      const roastTimeTrend = new Chart(ctx1,{
-        type:"line",
-        data:{
-          labels: roasts.map(r=>r.date),
-          datasets:[{
-            label:"Roast Time (s)",
-            data: roasts.map(r=>r.roast_time||null),
-            borderColor:"#5cc8ff", tension:0.3
-          }]
-        },
-        options:{ responsive:true }
-      });
-      addExportButtons("roastTimeTrend", roastTimeTrend);
-
-      // Chart 2: Dev% Trend
-      const ctx2 = document.getElementById("devPctTrend");
-      const devPctTrend = new Chart(ctx2,{
-        type:"line",
-        data:{
-          labels: roasts.map(r=>r.date),
-          datasets:[{
-            label:"Development %",
-            data: roasts.map(r=>r.dev_pct||null),
-            borderColor:"#52d39b", tension:0.3
-          }]
-        }
-      });
-      addExportButtons("devPctTrend", devPctTrend);
-
-      // Chart 3: Bean Averages
-      const beans = {};
-      roasts.forEach(r=>{
-        if(!beans[r.bean]) beans[r.bean]={ times:[], devs:[] };
-        if(r.roast_time) beans[r.bean].times.push(r.roast_time);
-        if(r.dev_pct) beans[r.bean].devs.push(r.dev_pct);
-      });
-      const beanLabels = Object.keys(beans);
-      const avgTimes = beanLabels.map(b=>{
-        const arr = beans[b].times; return arr.length? arr.reduce((a,b)=>a+b,0)/arr.length : null;
-      });
-      const avgDevs = beanLabels.map(b=>{
-        const arr = beans[b].devs; return arr.length? arr.reduce((a,b)=>a+b,0)/arr.length : null;
-      });
-      const ctx3 = document.getElementById("beanAverages");
-      const beanAverages = new Chart(ctx3,{
-        type:"bar",
-        data:{
-          labels: beanLabels,
-          datasets:[
-            { label:"Avg Roast Time (s)", data:avgTimes, backgroundColor:"#5cc8ff" },
-            { label:"Avg Dev %", data:avgDevs, backgroundColor:"#52d39b" }
-          ]
-        }
-      });
-      addExportButtons("beanAverages", beanAverages);
-
-      // Chart 4: Control Events (last roast only)
-      const last = roasts[roasts.length-1];
-      let events = [];
-      try { events = last?.controlEvents || []; } catch(e){}
-      const ctx4 = document.getElementById("controlEventsChart");
-      const controlEventsChart = new Chart(ctx4,{
-        type:"line",
-        data:{
-          labels: events.map(e=>e.time),
-          datasets:[
-            { label:"Power", data: events.map(e=>e.P), borderColor:"#ff6b6b" },
-            { label:"Fan", data: events.map(e=>e.F), borderColor:"#ffb656" },
-            { label:"Drum", data: events.map(e=>e.D), borderColor:"#8b92a6" }
-          ]
-        }
-      });
-      addExportButtons("controlEventsChart", controlEventsChart);
-    }
-
-    main();
-
-    // Cleanup Supabase channels on page unload
-    window.addEventListener("beforeunload", () => {
-        supabase.removeAllChannels();
     });
-  </script>
+    session = data.session;
+  }
+  if (!session) {
+    document.body.innerHTML = "<div class='wrap'><h2>Please log in via the Roasting Log app first.</h2></div>";
+    throw new Error("No session");
+  }
+
+  // --- FILTER UI ---
+  const beanSelect = document.getElementById("beanFilter");
+  const fromDateInput = document.getElementById("fromDate");
+  const toDateInput = document.getElementById("toDate");
+  const applyBtn = document.getElementById("applyFilters");
+
+  async function loadBeanFilter(){
+    const { data, error } = await supabase.from("roasting_log").select("bean_name");
+    if(error){ console.error(error); return; }
+    const uniqueBeans = [...new Set(data.map(r => r.bean_name).filter(Boolean))];
+    beanSelect.innerHTML = "<option value=''>All Beans</option>" + 
+      uniqueBeans.map(b => `<option value="${b}">${b}</option>`).join("");
+  }
+
+  applyBtn.addEventListener("click", ()=> {
+    fetchAndRender(beanSelect.value, fromDateInput.value, toDateInput.value);
+  });
+
+  // --- FETCH + RENDER ---
+  async function fetchAndRender(bean, fromDate, toDate){
+    let query = supabase.from("roasting_log").select("*");
+    if(bean) query = query.eq("bean_name", bean);
+    if(fromDate) query = query.gte("roast_date", fromDate);
+    if(toDate) query = query.lte("roast_date", toDate);
+
+    const { data, error } = await query;
+    if(error){ console.error(error); return; }
+
+    renderCharts(data);
+  }
+
+  // --- CHART RENDERERS ---
+  function renderCharts(roasts){
+    // Destroy existing if any
+    if(window.beanAveragesChart) window.beanAveragesChart.destroy();
+    if(window.weightLossChart) window.weightLossChart.destroy();
+    if(window.calendarChart) window.calendarChart.destroy();
+
+    // 1. Bean averages
+    const grouped = {};
+    for(const r of roasts){
+      if(!grouped[r.bean_name]) grouped[r.bean_name] = [];
+      grouped[r.bean_name].push(r);
+    }
+    const labels = Object.keys(grouped);
+    const avgTimes = labels.map(b => avg(grouped[b].map(r => r.roast_time)));
+    const avgDev = labels.map(b => avg(grouped[b].map(r => r.dev_percent)));
+    window.beanAveragesChart = new Chart(document.getElementById("beanAverages"), {
+      type:"bar",
+      data:{
+        labels,
+        datasets:[
+          { label:"Avg Roast Time (s)", data:avgTimes, backgroundColor: "#5cc8ff" },
+          { label:"Avg Dev %", data:avgDev, backgroundColor: "#52d39b" }
+        ]
+      },
+      options:{ responsive:true, plugins:{ title:{ display:true, text:"Bean Averages" } } }
+    });
+
+    // 2. Weight loss vs dev scatter
+    const scatterData = roasts.map(r=>({x:r.dev_percent,y:r.weight_loss}));
+    window.weightLossChart = new Chart(document.getElementById("weightLossVsDev"), {
+      type:"scatter",
+      data:{ datasets:[{ label:"Roasts", data:scatterData, backgroundColor:"#ffb656" }]},
+      options:{ plugins:{ title:{ display:true, text:"Weight Loss vs Dev%" } } }
+    });
+
+    // 3. Calendar heatmap (simplified bar per day)
+    const perDay = {};
+    for(const r of roasts){
+      const d = r.roast_date?.split("T")[0];
+      if(!d) continue;
+      perDay[d] = (perDay[d]||0)+1;
+    }
+    const calLabels = Object.keys(perDay).sort();
+    const calCounts = calLabels.map(d=>perDay[d]);
+    window.calendarChart = new Chart(document.getElementById("calendarHeatmap"), {
+      type:"bar",
+      data:{ labels:calLabels, datasets:[{ label:"Roasts", data:calCounts, backgroundColor:"#8b92a6" }] },
+      options:{ plugins:{ title:{ display:true, text:"Roasts per Day" } } }
+    });
+  }
+
+  function avg(arr){
+    return arr.length ? arr.reduce((a,b)=>a+(b||0),0)/arr.length : 0;
+  }
+
+  // --- INIT ---
+  await loadBeanFilter();
+  await fetchAndRender(); // initial load (all beans, all time)
+
+  // --- Cleanup ---
+  window.addEventListener("beforeunload", () => {
+    supabase.removeAllChannels();
+  });
+</script>
 </body>
 </html>
