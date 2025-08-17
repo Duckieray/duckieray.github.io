@@ -34,6 +34,24 @@
       margin-bottom: 20px;
     }
     canvas { width: 100% !important; height: 400px !important; }
+    button {
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: var(--accent2);
+    }
+    button:disabled {
+      background: var(--muted);
+      cursor: not-allowed;
+    }
+
   </style>
 </head>
 <body>
@@ -91,9 +109,9 @@
   const applyBtn = document.getElementById("applyFilters");
 
   async function loadBeanFilter(){
-    const { data, error } = await supabase.from("roasting_log").select("bean_name");
+    const { data, error } = await supabase.from("roasting_log").select("bean");
     if(error){ console.error(error); return; }
-    const uniqueBeans = [...new Set(data.map(r => r.bean_name).filter(Boolean))];
+    const uniqueBeans = [...new Set(data.map(r => r.bean).filter(Boolean))];
     beanSelect.innerHTML = "<option value=''>All Beans</option>" + 
       uniqueBeans.map(b => `<option value="${b}">${b}</option>`).join("");
   }
@@ -105,7 +123,7 @@
   // --- FETCH + RENDER ---
   async function fetchAndRender(bean, fromDate, toDate){
     let query = supabase.from("roasting_log").select("*");
-    if(bean) query = query.eq("bean_name", bean);
+    if(bean) query = query.eq("bean", bean);
     if(fromDate) query = query.gte("roast_date", fromDate);
     if(toDate) query = query.lte("roast_date", toDate);
 
@@ -125,8 +143,8 @@
     // 1. Bean averages
     const grouped = {};
     for(const r of roasts){
-      if(!grouped[r.bean_name]) grouped[r.bean_name] = [];
-      grouped[r.bean_name].push(r);
+      if(!grouped[r.bean]) grouped[r.bean] = [];
+      grouped[r.bean].push(r);
     }
     const labels = Object.keys(grouped);
     const avgTimes = labels.map(b => avg(grouped[b].map(r => r.roast_time)));
